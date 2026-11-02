@@ -338,9 +338,8 @@ pub fn official(p: &index::Project) -> bool {
 /// files are signed, and for a mod what it may do, in the game's words (Options > Mods). A native
 /// mod says it runs with the player's rights.
 pub fn trust_and_capabilities(id: &str) -> Vec<String> {
-    let Ok(index) = index() else {
-        return Vec::new();
-    };
+    let index = minecraftmod_index().or_else(|_| index());
+    let Ok(index) = index else { return Vec::new(); };
     let Some(p) = index.project(id) else {
         return Vec::new();
     };
@@ -381,18 +380,19 @@ pub fn trust_and_capabilities(id: &str) -> Vec<String> {
     lines
 }
 
-fn project_of(p: &index::Project) -> Option<Project> {
+fn project_of(p: &index::Project) -> Option<Project> { project_of_source(p, SourceId::Horizon) }
+fn project_of_source(p: &index::Project, source: SourceId) -> Option<Project> {
     let mut game_versions: Vec<String> = p.versions.iter().map(|v| v.game.clone()).collect();
     game_versions.dedup();
     Some(Project {
-        source: SourceId::Horizon,
+        source,
         id: p.id.clone(),
         slug: p.id.clone(),
         title: p.name.clone(),
         summary: p.summary.clone(),
         author: p.authors.join(", "),
         downloads: p.downloads,
-        page: format!("{SITE}/{}", p.id),
+        page: if source == SourceId::MinecraftMod { format!("{MINECRAFTMOD_SITE}/{}", p.id) } else { format!("{SITE}/{}", p.id) },
         icon: p.icon.clone(),
         license: p.license.clone(),
         kind: kind_of(&p.kind)?,
@@ -461,13 +461,14 @@ fn matches(p: &index::Project, text: &str) -> bool {
 
 /// The projects of the query's kind whose words match, for this game unless `everything`: the
 /// most downloaded first.
-fn search(index: &Index, query: &Query) -> Vec<Project> {
+fn search(index: &Index, query: &Query) -> Vec<Project> { search_source(index, query, SourceId::Horizon) }
+fn search_source(index: &Index, query: &Query, source: SourceId) -> Vec<Project> {
     let mut found: Vec<Project> = index
         .projects
         .iter()
         .filter(|p| kind_of(&p.kind) == Some(query.kind) && matches(p, &query.text))
         .filter(|p| query.everything || p.versions.iter().any(|v| v.game == GAME))
-        .filter_map(project_of)
+        .filter_map(|p| project_of_source(p, source))
         .collect();
     found.sort_by_key(|p| std::cmp::Reverse(p.downloads));
     found
@@ -486,30 +487,29 @@ impl Source for Registry {
     }
 
     fn search(&self, query: &Query) -> Result<Vec<Project>, String> {
-        let found = search(&*index()?, query);
-        refresh_ratings();
+        let source = if query.kind == Kind::Mod { SourceId::MinecraftMod } else { SourceId::Horizon };
+        let index = if source == SourceId::MinecraftMod { minecraftmod_index()? } else { index()? };
+        let found = search_source(&index, query, source);
+        if source == SourceId::Horizon { refresh_ratings(); }
         Ok(found)
     }
 
     fn project(&self, id: &str) -> Result<Project, String> {
+        if let Ok(index) = minecraftmod_index() {
+            if let Some(p) = index.project(id) {
+                return project_of_source(p, SourceId::MinecraftMod)
+                    .ok_or_else(|| format!("{} is not an installable MinecraftMod entry.", p.name));
+            }
+        }
         let index = index()?;
-        let p = index
-            .project(id)
-            .ok_or_else(|| format!("{id} isn't in Horizon's registry."))?;
-        project_of(p).ok_or_else(|| {
-            format!(
-                "{} is a {} in Horizon's registry: this launcher can't install those yet.",
-                p.name,
-                p.kind.name()
-            )
-        })
+        let p = index.project(id).ok_or_else(|| format!("{id} isn't in Horizon's registry."))?;
+        project_of(p).ok_or_else(|| format!("{} is a {} in Horizon's registry: this launcher can't install those yet.", p.name, p.kind.name()))
     }
 
     fn versions(&self, project: &Project) -> Result<Vec<Version>, String> {
-        let index = index()?;
-        let p = index
-            .project(&project.id)
-            .ok_or_else(|| format!("{} isn't in Horizon's registry.", project.title))?;
+        let index = if project.source == SourceId::MinecraftMod { minecraftmod_index()? } else { index()? };
+        let p = index.project(&project.id)
+            .ok_or_else(|| format!("{} isn't in its mod catalogue.", project.title))?;
         let level = crate::backend::game_mod_api_level();
         Ok(p.versions
             .iter()
@@ -518,11 +518,10 @@ impl Source for Registry {
     }
 
     fn details(&self, project: &Project) -> Result<Details, String> {
-        refresh_ratings();
-        let index = index()?;
-        let p = index
-            .project(&project.id)
-            .ok_or_else(|| format!("{} isn't in Horizon's registry.", project.title))?;
+        if project.source == SourceId::Horizon { refresh_ratings(); }
+        let index = if project.source == SourceId::MinecraftMod { minecraftmod_index()? } else { index()? };
+        let p = index.project(&project.id)
+            .ok_or_else(|| format!("{} isn't in its mod catalogue.", project.title))?;
         let newest = p.versions.first();
         let mut body = p.description.clone();
         if let Some(v) = newest.filter(|v| !v.capabilities.is_empty()) {
@@ -566,7 +565,7 @@ impl Source for Registry {
                 },
                 Link {
                     label: "Report".into(),
-                    url: format!("{REPORT}&title={}", p.id),
+                    url: if project.source == SourceId::MinecraftMod { format!("https://github.com/Geko7490/MinecraftMod/issues/new?title=Report%20mod%3A%20{}", p.id) } else { format!("{REPORT}&title={}", p.id) },
                 },
             ]
             .into_iter()
@@ -589,7 +588,7 @@ impl Source for Registry {
         folder: &Path,
         progress: &dyn Fn(f32),
     ) -> Result<PathBuf, String> {
-        fetch(file, folder, local(), progress)
+        if file.url.starts_with(MINECRAFTMOD_RELEASE_PREFIX) { fetch(file, folder, minecraftmod_local(), progress) } else { fetch(file, folder, local(), progress) }
     }
 }
 
@@ -647,23 +646,27 @@ pub fn install(
     progress: &dyn Fn(&str, f32),
 ) -> Result<Vec<installed::Entry>, String> {
     let level = crate::backend::game_mod_api_level();
-    install_from(&*index()?, local(), level, project, home, progress)
+    let index = if project.source == SourceId::MinecraftMod { minecraftmod_index()? } else { index()? };
+    let is_local = if project.source == SourceId::MinecraftMod { minecraftmod_local() } else { local() };
+    install_from_source(&index, is_local, level, project, project.source, home, progress)
 }
 
 /// [`install`] from `index`, for a game serving mod API `level`.
 fn install_from(
-    index: &Index,
-    local: bool,
-    level: Option<u32>,
-    project: &Project,
-    home: &Path,
+    index: &Index, local: bool, level: Option<u32>, project: &Project, home: &Path,
     progress: &dyn Fn(&str, f32),
+) -> Result<Vec<installed::Entry>, String> {
+    install_from_source(index, local, level, project, SourceId::Horizon, home, progress)
+}
+fn install_from_source(
+    index: &Index, local: bool, level: Option<u32>, project: &Project, source: SourceId,
+    home: &Path, progress: &dyn Fn(&str, f32),
 ) -> Result<Vec<installed::Entry>, String> {
     let p = index
         .project(&project.id)
         .ok_or_else(|| format!("{} isn't in Horizon's registry.", project.title))?;
     let v = newest(index, p, level)?;
-    install_version(index, local, p, v, home, progress).map(|e| vec![e])
+    install_version(index, local, p, v, source, home, progress).map(|e| vec![e])
 }
 
 /// A project's newest version for this game that wasn't taken down and that a game serving mod
@@ -704,10 +707,11 @@ fn install_version(
     local: bool,
     p: &index::Project,
     v: &index::Version,
+    source: SourceId,
     home: &Path,
     progress: &dyn Fn(&str, f32),
 ) -> Result<installed::Entry, String> {
-    let project = project_of(p).ok_or_else(|| format!("{} can't be installed here.", p.name))?;
+    let project = project_of_source(p, source).ok_or_else(|| format!("{} cannot be installed here.", p.name))?;
     if let Some(r) = index.revoked(&p.id, &v.file.sha256) {
         return Err(format!("{} was taken down: {}", p.name, r.reason));
     }
@@ -720,7 +724,7 @@ fn install_version(
         false => relative(project.kind, &p.id, &v.file.name)?,
     };
     let mut list = installed::Installed::load(home);
-    let ours = |e: &installed::Entry| e.source == SourceId::Horizon && e.project == p.id;
+    let ours = |e: &installed::Entry| e.source == source && e.project == p.id;
     let old = list.entries.iter().find(|e| ours(e)).cloned();
     if old.as_ref().is_some_and(|o| o.version == v.version) {
         return Ok(old.expect("checked"));
@@ -776,7 +780,7 @@ fn install_version(
         java::set_enabled(home, &p.id, true)?;
     }
     let entry = installed::Entry {
-        source: SourceId::Horizon,
+        source,
         project: p.id.clone(),
         slug: p.id.clone(),
         title: p.name.clone(),
@@ -831,7 +835,7 @@ pub fn turn_off_revoked(index: &Index, home: &Path) -> Vec<String> {
     let mut out = Vec::new();
     for e in installed::Installed::load(home).entries {
         let hash = e.checksum.strip_prefix("SHA-256:").unwrap_or_default();
-        let Some(r) = (e.source == SourceId::Horizon)
+        let Some(r) = (matches!(e.source, SourceId::Horizon | SourceId::MinecraftMod))
             .then(|| index.revoked(&e.project, hash))
             .flatten()
         else {
@@ -861,7 +865,7 @@ pub fn before_play(home: &Path) {
     let from_registry = installed::Installed::load(home)
         .entries
         .iter()
-        .any(|e| e.source == SourceId::Horizon);
+        .any(|e| matches!(e.source, SourceId::Horizon | SourceId::MinecraftMod));
     if !from_registry {
         return;
     }
@@ -875,11 +879,14 @@ pub fn before_play(home: &Path) {
             eprintln!("{line}");
         }
     }
+    let custom = fs::read_to_string(crate::backend::game_home().join(MINECRAFTMOD_CACHE)).ok();
+    if let Some(index) = custom.and_then(|t| parse_minecraftmod_catalog(&t, minecraftmod_local()).ok()) {
+        for line in turn_off_revoked(&index, home) { eprintln!("{line}"); }
+    }
     let home = home.to_owned();
     std::thread::spawn(move || {
-        if let Ok(index) = index() {
-            turn_off_revoked(&index, &home);
-        }
+        if let Ok(index) = index() { turn_off_revoked(&index, &home); }
+        if let Ok(index) = minecraftmod_index() { turn_off_revoked(&index, &home); }
     });
 }
 

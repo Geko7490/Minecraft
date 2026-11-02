@@ -170,7 +170,7 @@ pub fn install(
     home: &Path,
     progress: &dyn Fn(&str, f32),
 ) -> Result<Vec<Entry>, String> {
-    if project.source == SourceId::Horizon {
+    if matches!(project.source, SourceId::Horizon | SourceId::MinecraftMod) {
         return super::horizon::install(project, home, progress);
     }
     if project.kind == Kind::Mod {
@@ -267,7 +267,7 @@ pub fn remove(home: &Path, name: &str) -> Result<Entry, String> {
         .lookup(name)
         .cloned()
         .ok_or_else(|| format!("{name} wasn't installed by the browser."))?;
-    if entry.kind == Kind::Mod && entry.source != SourceId::Horizon {
+    if entry.kind == Kind::Mod && !matches!(entry.source, SourceId::Horizon | SourceId::MinecraftMod) {
         super::java::remove(home, &entry)?;
     } else {
         match fs::remove_file(home.join(&entry.file)) {
@@ -276,7 +276,7 @@ pub fn remove(home: &Path, name: &str) -> Result<Entry, String> {
             Err(e) => return Err(format!("{}: {e}", entry.file)),
         }
     }
-    if let Some(id) = super::horizon::mod_id(&entry).filter(|_| entry.source == SourceId::Horizon) {
+    if let Some(id) = super::horizon::mod_id(&entry).filter(|_| matches!(entry.source, SourceId::Horizon | SourceId::MinecraftMod)) {
         // The `.hmod` a mod that turned native left behind (horizon::install_version).
         if entry.file.ends_with(".hnmod") {
             let _ = fs::remove_file(home.join(super::java::MODS_DIR).join(format!("{id}.hmod")));
