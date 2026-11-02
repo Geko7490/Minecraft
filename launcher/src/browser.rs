@@ -284,7 +284,7 @@ pub const CURSEFORGE_KEY_NEEDED: &str =
 pub const SHADERS_ON_HORIZON: &str =
     "Horizon's shader packs are on Horizon's registry: pick Horizon.";
 
-/// The sources this launcher uses: Modrinth, CurseForge and Horizon's registry.
+/// The sources this launcher uses: Modrinth, CurseForge, MinecraftMod and Horizon.
 pub fn sources() -> Vec<Box<dyn Source>> {
     vec![
         Box::new(modrinth::Modrinth),

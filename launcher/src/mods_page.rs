@@ -1726,7 +1726,7 @@ impl Launcher {
             let source_color = match p.source {
                 SourceId::Modrinth => t.accent,
                 SourceId::CurseForge => t.warn,
-                SourceId::Horizon => t.success,
+                SourceId::Horizon | SourceId::MinecraftMod => t.success,
             };
             let mut right = div()
                 .flex()
