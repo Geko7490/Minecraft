@@ -338,8 +338,9 @@ pub fn official(p: &index::Project) -> bool {
 /// files are signed, and for a mod what it may do, in the game's words (Options > Mods). A native
 /// mod says it runs with the player's rights.
 pub fn trust_and_capabilities(id: &str) -> Vec<String> {
-    let index = minecraftmod_index().or_else(|_| index());
-    let Ok(index) = index else { return Vec::new(); };
+    let index = minecraftmod_index().ok().filter(|i| i.project(id).is_some())
+        .or_else(|| index().ok());
+    let Some(index) = index else { return Vec::new(); };
     let Some(p) = index.project(id) else {
         return Vec::new();
     };
