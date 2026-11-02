@@ -274,17 +274,20 @@ pub trait Source: Send + Sync {
     }
 }
 
-/// What the launcher says wherever CurseForge would be.
-pub const CURSEFORGE_SOON: &str = "CurseForge support is coming soon.";
+/// What the launcher says when CurseForge lacks an API key.
+pub const CURSEFORGE_KEY_NEEDED: &str =
+    "CurseForge needs an API key: set HORIZON_CURSEFORGE_API_KEY in your environment.";
 /// What another source answers for shader packs: Horizon's own are on its registry only.
 pub const SHADERS_ON_HORIZON: &str =
     "Horizon's shader packs are on Horizon's registry: pick Horizon.";
 
-/// The sources this launcher uses: Modrinth and Horizon's registry. CurseForge support is coming
-/// soon: its API needs a paid key, so no search or install goes to it; `curseforge` is kept for
-/// then.
+/// The sources this launcher uses: Modrinth, CurseForge and Horizon's registry.
 pub fn sources() -> Vec<Box<dyn Source>> {
-    vec![Box::new(modrinth::Modrinth), Box::new(horizon::Registry)]
+    vec![
+        Box::new(modrinth::Modrinth),
+        Box::new(curseforge::CurseForge::default()),
+        Box::new(horizon::Registry),
+    ]
 }
 
 /// The source of that id, when this launcher can use it.
