@@ -89,6 +89,11 @@ impl Default for CurseForge {
 }
 
 impl CurseForge {
+    /// Construct a source with a key supplied by the platform's secure credential store.
+    pub fn with_key(key: String) -> Self {
+        Self { key: key.trim().to_owned() }
+    }
+
     /// The source, when a key exists; else None and CurseForge isn't offered.
     pub fn from_env() -> Option<Self> {
         load_key().map(|key| Self { key })
