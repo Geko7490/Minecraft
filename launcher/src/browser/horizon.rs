@@ -326,7 +326,7 @@ fn kind_of(kind: &index::Kind) -> Option<Kind> {
 }
 
 /// Where the registry's mod policy is: who owns and answers for a project, takedowns.
-pub const POLICY: &str = "https://github.com/Geko7490/MinecraftMod#package-rules";
+pub const POLICY: &str = "https://github.com/Geko7490/MinecraftMod#format-and-safety";
 
 /// Whether the Horizon project made `p` (the mod policy's "Official": author Horizon, source in
 /// the horizon-rust organisation).
