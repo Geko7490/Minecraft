@@ -1140,7 +1140,7 @@ capabilities = ["registries"]
         let types: Vec<_> = content
             .entity_types
             .iter()
-            .map(|t| (t.id.as_str(), t.item.as_str(), t.damage))
+            .map(|t| (t.id.as_str(), t.item.as_deref().unwrap_or(""), t.damage))
             .collect();
         assert_eq!(
             types,
@@ -1192,6 +1192,63 @@ capabilities = ["registries"]
         ];
         let e = hmod("type-shared", MANIFEST_TEXT, files).unwrap_err();
         assert!(e.contains("already throws another entity type"), "{e}");
+    }
+
+    #[test]
+    fn living_entity_types_reuse_a_vanilla_archetype_and_patch_attributes() {
+        let files: &[(&str, &[u8])] = &[(
+            "data/ruby/horizon/entity_type/sentinel.json",
+            br#"{
+                "kind": "living",
+                "template": "minecraft:zombie",
+                "attributes": {
+                    "minecraft:max_health": 40.0,
+                    "minecraft:movement_speed": 0.31,
+                    "minecraft:attack_damage": 7.0
+                }
+            }"#,
+        )];
+        let content = hmod("living-entity", MANIFEST_TEXT, files).unwrap();
+        let mob = &content.entity_types[0];
+        assert_eq!(mob.id, "ruby:sentinel");
+        assert_eq!(mob.kind, EntityKind::Living);
+        assert_eq!(mob.template, "minecraft:zombie");
+        assert_eq!(mob.item, None);
+        assert_eq!(mob.attributes["minecraft:max_health"], 40.0);
+        assert_eq!(mob.attributes["minecraft:movement_speed"], 0.31);
+
+        for (case, file, why) in [
+            (
+                "living-template",
+                r#"{"kind":"living","template":"minecraft:warden"}"#,
+                "is not one of",
+            ),
+            (
+                "living-item",
+                r#"{"kind":"living","template":"minecraft:zombie","item":"ruby:core"}"#,
+                "do not take an item",
+            ),
+            (
+                "living-attribute",
+                r#"{"kind":"living","template":"minecraft:zombie","attributes":{"minecraft:scale":2.0}}"#,
+                "unsupported living attribute",
+            ),
+            (
+                "living-health",
+                r#"{"kind":"living","template":"minecraft:zombie","attributes":{"minecraft:max_health":0.0}}"#,
+                "greater than zero",
+            ),
+            (
+                "living-damage",
+                r#"{"kind":"living","template":"minecraft:zombie","damage":3.0}"#,
+                "inherited from its template",
+            ),
+        ] {
+            let files: &[(&str, &[u8])] =
+                &[("data/ruby/horizon/entity_type/a.json", file.as_bytes())];
+            let error = hmod(case, MANIFEST_TEXT, files).unwrap_err();
+            assert!(error.contains(why), "{case}: {error}");
+        }
     }
 
     #[test]
