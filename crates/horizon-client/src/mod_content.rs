@@ -621,7 +621,35 @@ impl Plan<'_> {
             }
             out.extend(serde_json::to_vec(&t.id).map_err(|e| e.to_string())?);
             out.push(b':');
-            out.extend(row.get().as_bytes());
+            if t.kind == horizon_mods::content::EntityKind::Living {
+                // Keep a source archetype marker so MobTypes can reuse the
+                // vanilla species AI, model, animation and sounds under the
+                // mod's own registered entity id.
+                let mut value: serde_json::Value =
+                    serde_json::from_str(row.get()).map_err(|e| e.to_string())?;
+                let object = value.as_object_mut().ok_or("entity template is not an object")?;
+                object.insert(
+                    "horizon:template".into(),
+                    serde_json::Value::String(t.template.clone()),
+                );
+                if !t.attributes.is_empty() {
+                    let attributes = object
+                        .entry("attributes")
+                        .or_insert_with(|| serde_json::Value::Object(Default::default()));
+                    let attributes = attributes
+                        .as_object_mut()
+                        .ok_or("entity template attributes are not an object")?;
+                    for (id, number) in &t.attributes {
+                        let n = serde_json::Number::from_f64(*number)
+                            .ok_or_else(|| format!("invalid attribute value for {id}"))?;
+                        attributes.insert(id.clone(), serde_json::Value::Number(n));
+                    }
+                }
+                out.extend(serde_json::to_vec(&value).map_err(|e| e.to_string())?);
+            } else {
+                // Preserve the vanilla row byte-for-byte for projectile types.
+                out.extend(row.get().as_bytes());
+            }
         }
         out.push(b'}');
         Ok(out)
