@@ -107,6 +107,10 @@ pub(super) struct Mods {
     pub(super) about: HashMap<String, Vec<String>>,
     /// The project page, filters and images.
     pub(super) browse: super::mods_project::Browse,
+    pub(super) cf_key_input: LineEdit,
+    pub(super) cf_key_focus: FocusHandle,
+    pub(super) cf_key_focused: bool,
+    pub(super) cf_key_editing: bool,
     pub(super) tx: Sender<Event>,
     rx: Receiver<Event>,
 }
@@ -186,6 +190,10 @@ impl Mods {
             checks: HashMap::new(),
             about: HashMap::new(),
             browse: Default::default(),
+            cf_key_input: LineEdit::new(browser::curseforge::load_key().unwrap_or_default(), 120, 40),
+            cf_key_focus: cx.focus_handle().tab_index(0).tab_stop(true),
+            cf_key_focused: false,
+            cf_key_editing: false,
             tx,
             rx,
         }
@@ -193,6 +201,7 @@ impl Mods {
 
     pub(super) fn note_focus(&mut self, window: &Window) {
         self.focused = self.focus.is_focused(window);
+        self.cf_key_focused = self.cf_key_focus.is_focused(window);
     }
 
     pub(super) fn entry(&self, p: &Project) -> Option<&installed::Entry> {
@@ -932,8 +941,24 @@ impl Launcher {
         // Sources can be switched for all kinds except Shaders (which are Horizon-only).
         // A Java instance's mods and resource packs come from Modrinth, for its version.
         let java = self.mods.java_for(self.mods.kind).is_some();
-        let source_note = (self.mods.kind != PackKind::Shader && !java)
-            .then(|| div().flex().child(self.mods_source_switch(cx)));
+        let change_key_btn = (self.mods.source == SourceId::CurseForge && browser::curseforge::has_key() && !self.mods.cf_key_editing)
+            .then(|| {
+                button("cf-change-key", "API Key Settings", Kind::Ghost, &t).on_click(
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.mods.cf_key_editing = true;
+                        cx.notify();
+                    }),
+                )
+            });
+        let source_bar = (self.mods.kind != PackKind::Shader && !java).then(|| {
+            div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap(px(12.))
+                .child(self.mods_source_switch(cx))
+                .children(change_key_btn)
+        });
         // The registry lists only what was made for Horizon: no "everything", no Modrinth filters.
         let registry = self.mods.source == SourceId::Horizon && !java;
         let filters = (!registry).then(|| self.mods_filters(cx));
@@ -957,7 +982,7 @@ impl Launcher {
                     .child(search_btn)
                     .when(!registry && !java, |d| d.child(toggle)),
             )
-            .children(source_note)
+            .children(source_bar)
             .children(filters)
             .children(self.mods_target_line(cx));
         // The kinds are inventory tabs on the panel that holds the open one.
@@ -1548,9 +1573,119 @@ impl Launcher {
         ))
     }
 
+    fn curseforge_key_card(&mut self, cx: &mut Context<Self>) -> Div {
+        let t = self.theme;
+        let focused = self.mods.cf_key_focused;
+        let key_field = div()
+            .id("cf-key-input")
+            .track_focus(&self.mods.cf_key_focus)
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .w(px(380.))
+            .h(px(theme::FIELD + 4.))
+            .px(px(12.))
+            .overflow_hidden()
+            .border_2()
+            .border_color(if focused { t.accent } else { t.outline })
+            .bg(t.well)
+            .text_size(px(theme::UI.px))
+            .cursor_text()
+            .child(blocks::icon("key", 18., t.muted))
+            .child(line_edit::content(
+                &self.mods.cf_key_input,
+                &t,
+                focused,
+                false,
+                false,
+                "Paste your CurseForge API Key here...",
+            ))
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                window.focus(&this.mods.cf_key_focus, cx);
+                cx.notify();
+            }))
+            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                match line_edit::handle(&mut this.mods.cf_key_input, ev, cx) {
+                    Key::Enter => {
+                        let key = this.mods.cf_key_input.text().trim().to_owned();
+                        if !key.is_empty() {
+                            let _ = browser::curseforge::save_key(&key);
+                            this.mods.cf_key_editing = false;
+                            this.mods_search(0);
+                        }
+                    }
+                    Key::Escape => window.blur(cx),
+                    _ => {}
+                }
+                cx.stop_propagation();
+                cx.notify();
+            }));
+        let key_field = line_edit::mouse(key_field, cx, |this| &mut this.mods.cf_key_input);
+
+        let save_btn = button("cf-key-save", "Save & Search", Kind::Primary, &t).on_click(
+            cx.listener(|this, _: &ClickEvent, _, cx| {
+                let key = this.mods.cf_key_input.text().trim().to_owned();
+                if !key.is_empty() {
+                    let _ = browser::curseforge::save_key(&key);
+                    this.mods.cf_key_editing = false;
+                    this.mods_search(0);
+                    cx.notify();
+                }
+            }),
+        );
+
+        let console_btn = button("cf-key-console", "Get API Key", Kind::Ghost, &t).on_click(
+            |_, _, cx| {
+                cx.open_url("https://console.curseforge.com/");
+            },
+        );
+
+        let cancel_btn = browser::curseforge::has_key().then(|| {
+            button("cf-key-cancel", "Cancel", Kind::Ghost, &t).on_click(
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.mods.cf_key_editing = false;
+                    cx.notify();
+                }),
+            )
+        });
+
+        plate(&t)
+            .flex()
+            .flex_col()
+            .gap(px(16.))
+            .p(px(20.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(blocks::icon("key", 20., t.warn))
+                    .child(caps("CurseForge API Key Configuration").text_color(t.warn)),
+            )
+            .child(
+                text(theme::UI)
+                    .text_color(t.ink_soft)
+                    .child("To search and install mods, resource packs, and modpacks from CurseForge, please enter your API key from the CurseForge Developer Console below."),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .items_center()
+                    .gap(px(12.))
+                    .child(key_field)
+                    .child(save_btn)
+                    .child(console_btn)
+                    .children(cancel_btn),
+            )
+    }
+
     fn mods_results(&mut self, cx: &mut Context<Self>) -> Div {
         let t = self.theme;
         let m = &self.mods;
+        if m.source == SourceId::CurseForge && (!browser::curseforge::has_key() || m.cf_key_editing) {
+            return self.curseforge_key_card(cx);
+        }
         if let Some(e) = &m.error {
             return div().child(notice(e.clone(), &t));
         }
