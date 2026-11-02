@@ -485,9 +485,19 @@ impl Launcher {
             );
             if matches!(page, Page::Shaders | Page::Mods) {
                 use crate::shader_catalog::Origin;
-                let width = ((w - 185.0) / 2.0).clamp(58.0, 120.0);
-                for (i, origin) in [Origin::Horizon, Origin::Modrinth].into_iter().enumerate() {
-                    let rect = [w - 32.0 - (2 - i) as f32 * width, 134.0, width - 5.0, 32.0];
+                let origins: &[Origin] = if page == Page::Mods {
+                    &[Origin::Horizon, Origin::Modrinth, Origin::MinecraftMod]
+                } else {
+                    &[Origin::Horizon, Origin::Modrinth]
+                };
+                let width = ((w - 185.0) / origins.len() as f32).clamp(58.0, 120.0);
+                for (i, origin) in origins.iter().copied().enumerate() {
+                    let rect = [
+                        w - 32.0 - (origins.len() - i) as f32 * width,
+                        134.0,
+                        width - 5.0,
+                        32.0,
+                    ];
                     button(
                         &mut ui,
                         &mut self.targets,
