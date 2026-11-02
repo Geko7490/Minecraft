@@ -17,6 +17,9 @@ use std::time::{Duration, Instant};
 
 /// Where the registry publishes its index (GitHub Pages of horizon-rust/horizon-mods).
 pub const INDEX_URL: &str = "https://horizon-rust.github.io/horizon-mods/index.json";
+pub const MINECRAFTMOD_INDEX_URL: &str = "https://raw.githubusercontent.com/Geko7490/MinecraftMod/main/catalog/mods.json";
+const MINECRAFTMOD_SITE: &str = "https://github.com/Geko7490/MinecraftMod/tree/main/mods";
+const MINECRAFTMOD_RELEASE_PREFIX: &str = "https://github.com/Geko7490/MinecraftMod/releases/download/";
 /// The registry's pages on the website, `<SITE>/<id>`.
 const SITE: &str = "https://playhorizon.dev/mods";
 /// The report form of a project.
@@ -29,6 +32,7 @@ const FRESH: Duration = Duration::from_secs(600);
 const MAX_INDEX: u64 = 16 << 20;
 /// The last index fetched, kept in the game folder for when the registry can't be reached.
 const CACHE: &str = "mod-browser/horizon-index.json";
+const MINECRAFTMOD_CACHE: &str = "mod-browser/minecraftmod-catalog.json";
 /// Players' ratings of every project (the registry service, crates/horizon-mod-registry).
 const RATINGS_URL: &str = "https://playhorizon.dev/api/mods/ratings";
 /// Where a player rates a project: the site's GitHub sign-in, which comes back to its page.
@@ -51,8 +55,66 @@ pub fn local() -> bool {
 }
 
 static LOADED: Mutex<Option<(Instant, Arc<Index>)>> = Mutex::new(None);
+static MINECRAFTMOD_LOADED: Mutex<Option<(Instant, Arc<Index>)>> = Mutex::new(None);
 
 /// The index read last in this run, without asking the network: for what must not wait.
+
+fn minecraftmod_location() -> String {
+    std::env::var("MINECRAFTMOD_INDEX").ok().filter(|v| !v.is_empty())
+        .unwrap_or_else(|| MINECRAFTMOD_INDEX_URL.to_owned())
+}
+fn minecraftmod_local() -> bool { !minecraftmod_location().starts_with("https://") }
+fn parse_minecraftmod_catalog(text: &str, local: bool) -> Result<Index, String> {
+    use serde_json::{json, Value};
+    let catalog: Value = serde_json::from_str(text)
+        .map_err(|e| format!("MinecraftMod catalogue is not JSON: {e}"))?;
+    if catalog["schema"].as_u64() != Some(1) { return Err("MinecraftMod catalogue schema is not supported".into()); }
+    let items = catalog["mods"].as_array().ok_or("MinecraftMod catalogue has no mods array")?;
+    let mut projects = Vec::new();
+    for item in items {
+        if item["type"].as_str() != Some("hmod") { continue; }
+        let id = item["id"].as_str().ok_or("catalogue mod has no id")?;
+        let name = item["name"].as_str().ok_or("catalogue mod has no name")?;
+        let description = item["description"].as_str().unwrap_or_default();
+        let developer = item["developer"].as_str().ok_or("catalogue mod has no developer")?;
+        let source = item["source"].as_str().ok_or("catalogue mod has no source")?;
+        let license = item["license"].as_str().ok_or("catalogue mod has no license")?;
+        let mut versions = Vec::new();
+        for v in item["versions"].as_array().ok_or("catalogue mod has no versions")? {
+            let games = v["game_versions"].as_array().ok_or_else(|| format!("{id}: game_versions missing"))?;
+            let game = games.iter().filter_map(Value::as_str).find(|g| *g == GAME)
+                .or_else(|| games.iter().filter_map(Value::as_str).next())
+                .ok_or_else(|| format!("{id}: game version missing"))?;
+            versions.push(json!({
+                "version": v["version"].as_str().ok_or_else(|| format!("{id}: version missing"))?,
+                "published": v["published"].as_str().ok_or_else(|| format!("{id}: published missing"))?,
+                "changelog": v["changelog"].as_str().unwrap_or_default(),
+                "api": v["api"].as_str().ok_or_else(|| format!("{id}: API missing"))?,
+                "side": v["side"].as_str().ok_or_else(|| format!("{id}: side missing"))?,
+                "capabilities": v["capabilities"].as_array().cloned().unwrap_or_default(),
+                "game": game, "requires": [],
+                "file": {
+                    "name": v["file_name"].as_str().ok_or_else(|| format!("{id}: file_name missing"))?,
+                    "url": v["download_url"].as_str().ok_or_else(|| format!("{id}: download_url missing"))?,
+                    "size": v["size"].as_u64().ok_or_else(|| format!("{id}: size invalid"))?,
+                    "sha256": v["sha256"].as_str().ok_or_else(|| format!("{id}: SHA-256 missing"))?
+                }
+            }));
+        }
+        if versions.is_empty() { continue; }
+        projects.push(json!({
+            "id": id, "kind": "mod", "name": name, "summary": description,
+            "description": description, "authors": [developer], "owners": [],
+            "license": license, "source": source,
+            "icon": item.get("icon").cloned().unwrap_or(Value::Null),
+            "key": null, "versions": versions, "downloads": 0
+        }));
+    }
+    let value = json!({"schema":1,"generated":catalog["generated"].as_str().unwrap_or(""),"projects":projects,"revoked":[]});
+    let encoded = serde_json::to_string(&value).map_err(|e| e.to_string())?;
+    if local { Index::parse_local(&encoded) } else { Index::parse(&encoded) }
+}
+
 pub fn known_index() -> Option<Arc<Index>> {
     LOADED
         .lock()
@@ -99,6 +161,43 @@ pub fn index() -> Result<Arc<Index>, String> {
     let index = Arc::new(index);
     *LOADED.lock().unwrap() = Some((Instant::now(), index.clone()));
     Ok(index)
+}
+
+
+pub fn minecraftmod_index() -> Result<Arc<Index>, String> {
+    if let Some((at, index)) = MINECRAFTMOD_LOADED.lock().unwrap().as_ref() {
+        if at.elapsed() < FRESH { return Ok(index.clone()); }
+    }
+    let cache = crate::backend::game_home().join(MINECRAFTMOD_CACHE);
+    let index = match fetch_minecraftmod_index() {
+        Ok((index, text)) => {
+            if let Some(dir) = cache.parent() { let _ = fs::create_dir_all(dir); }
+            let _ = fs::write(&cache, text);
+            index
+        }
+        Err(error) => {
+            let kept = fs::read_to_string(&cache).map_err(|_| error.clone())?;
+            parse_minecraftmod_catalog(&kept, minecraftmod_local()).map_err(|_| error)?
+        }
+    };
+    let index = Arc::new(index);
+    *MINECRAFTMOD_LOADED.lock().unwrap() = Some((Instant::now(), index.clone()));
+    Ok(index)
+}
+fn fetch_minecraftmod_index() -> Result<(Index, String), String> {
+    use std::io::Read;
+    let at = minecraftmod_location();
+    let text = if at.starts_with("https://") {
+        let response = download::agent(&at).get(&at).call().map_err(|e| match e {
+            ureq::Error::Status(code, _) => format!("MinecraftMod catalogue answered {code}."),
+            ureq::Error::Transport(t) => format!("MinecraftMod catalogue can't be reached: {t}"),
+        })?;
+        let mut text = String::new();
+        response.into_reader().take(MAX_INDEX).read_to_string(&mut text).map_err(|e| e.to_string())?;
+        text
+    } else { fs::read_to_string(&at).map_err(|e| format!("{at}: {e}"))? };
+    let index = parse_minecraftmod_catalog(&text, minecraftmod_local())?;
+    Ok((index, text))
 }
 
 fn fetch_index() -> Result<(Index, String), String> {
@@ -227,7 +326,7 @@ fn kind_of(kind: &index::Kind) -> Option<Kind> {
 }
 
 /// Where the registry's mod policy is: who owns and answers for a project, takedowns.
-pub const POLICY: &str = "https://playhorizon.dev/mods/policy";
+pub const POLICY: &str = "https://github.com/Geko7490/MinecraftMod#package-rules";
 
 /// Whether the Horizon project made `p` (the mod policy's "Official": author Horizon, source in
 /// the horizon-rust organisation).

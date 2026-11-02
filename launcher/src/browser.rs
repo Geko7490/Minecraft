@@ -85,6 +85,7 @@ pub enum SourceId {
     CurseForge,
     /// Horizon's own registry of reviewed mods, modpacks and resource packs ([`horizon`]).
     Horizon,
+    MinecraftMod,
 }
 
 impl SourceId {
@@ -93,6 +94,7 @@ impl SourceId {
             SourceId::Modrinth => "Modrinth",
             SourceId::CurseForge => "CurseForge",
             SourceId::Horizon => "Horizon",
+            SourceId::MinecraftMod => "MinecraftMod",
         }
     }
 }
@@ -292,6 +294,7 @@ pub fn sources() -> Vec<Box<dyn Source>> {
 
 /// The source of that id, when this launcher can use it.
 pub fn source(id: SourceId) -> Option<Box<dyn Source>> {
+    if id == SourceId::MinecraftMod { return Some(Box::new(horizon::Registry)); }
     sources().into_iter().find(|s| s.id() == id)
 }
 
