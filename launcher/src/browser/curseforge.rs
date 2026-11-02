@@ -91,6 +91,18 @@ pub(super) fn search_url(query: &Query) -> String {
         query.offset,
         query.limit.clamp(1, 50),
     );
+    if let Some(loader) = &query.filters.loader {
+        let lt = match loader.to_ascii_lowercase().as_str() {
+            "forge" => Some(1),
+            "fabric" => Some(4),
+            "quilt" => Some(5),
+            "neoforge" => Some(6),
+            _ => None,
+        };
+        if let Some(code) = lt {
+            url.push_str(&format!("&modLoaderType={code}"));
+        }
+    }
     if let Some(v) = &query.filters.game_version {
         url.push_str(&format!("&gameVersion={}", encode(v)));
     } else if !query.everything && matches!(query.kind, Kind::ResourcePack | Kind::Mod) {
@@ -256,6 +268,64 @@ impl Source for CurseForge {
         Ok(super::details::Details {
             body: desc,
             ..super::details::Details::default()
+        })
+    }
+
+    fn tags(&self, _kind: Kind) -> Result<super::details::Tags, String> {
+        let loaders = vec![
+            "fabric".to_owned(),
+            "forge".to_owned(),
+            "neoforge".to_owned(),
+            "quilt".to_owned(),
+        ];
+        let game_versions = vec![
+            GAME.to_owned(),
+            "1.21.4".to_owned(),
+            "1.21.3".to_owned(),
+            "1.21.1".to_owned(),
+            "1.21".to_owned(),
+            "1.20.6".to_owned(),
+            "1.20.4".to_owned(),
+            "1.20.1".to_owned(),
+            "1.19.4".to_owned(),
+            "1.19.2".to_owned(),
+            "1.18.2".to_owned(),
+            "1.16.5".to_owned(),
+        ];
+        let categories = vec![
+            super::details::Tag {
+                name: "technology".to_owned(),
+                header: None,
+            },
+            super::details::Tag {
+                name: "magic".to_owned(),
+                header: None,
+            },
+            super::details::Tag {
+                name: "adventure".to_owned(),
+                header: None,
+            },
+            super::details::Tag {
+                name: "storage".to_owned(),
+                header: None,
+            },
+            super::details::Tag {
+                name: "decoration".to_owned(),
+                header: None,
+            },
+            super::details::Tag {
+                name: "optimization".to_owned(),
+                header: None,
+            },
+            super::details::Tag {
+                name: "utility".to_owned(),
+                header: None,
+            },
+        ];
+        Ok(super::details::Tags {
+            categories,
+            loaders,
+            game_versions,
         })
     }
 }
