@@ -330,31 +330,31 @@ impl Source for CurseForge {
         let categories = vec![
             super::details::Tag {
                 name: "technology".to_owned(),
-                header: None,
+                header: "categories".to_owned(),
             },
             super::details::Tag {
                 name: "magic".to_owned(),
-                header: None,
+                header: "categories".to_owned(),
             },
             super::details::Tag {
                 name: "adventure".to_owned(),
-                header: None,
+                header: "categories".to_owned(),
             },
             super::details::Tag {
                 name: "storage".to_owned(),
-                header: None,
+                header: "categories".to_owned(),
             },
             super::details::Tag {
                 name: "decoration".to_owned(),
-                header: None,
+                header: "categories".to_owned(),
             },
             super::details::Tag {
                 name: "optimization".to_owned(),
-                header: None,
+                header: "categories".to_owned(),
             },
             super::details::Tag {
                 name: "utility".to_owned(),
-                header: None,
+                header: "categories".to_owned(),
             },
         ];
         Ok(super::details::Tags {
