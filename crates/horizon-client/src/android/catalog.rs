@@ -10,6 +10,69 @@ pub fn source_only_mod(project: &Project) -> bool {
         && project.loaders.iter().any(|loader| loader == "hnmod")
 }
 
+/// Downloads a catalog-listed .hmod, verifies its SHA-256 in Source::fetch, then asks
+/// Horizon's own package reader to validate the manifest and component before installation.
+fn install_minecraftmod(
+    source: &dyn Source,
+    project: &Project,
+    game: &Path,
+    progress: &dyn Fn(f32),
+) -> Result<(), String> {
+    if source.id() != browser::SourceId::MinecraftMod
+        || project.source != browser::SourceId::MinecraftMod
+        || project.kind != Kind::Mod
+    {
+        return Err("Expected a MinecraftMod .hmod project".into());
+    }
+    if !cfg!(target_pointer_width = "64") {
+        return Err("Sandboxed .hmod mods require a 64-bit Android build".into());
+    }
+    let versions = source.versions(project)?;
+    let version = browser::pick(Kind::Mod, &versions, false)
+        .ok_or_else(|| format!("{} has no release for Minecraft {}.", project.title, browser::GAME))?;
+    let file = version.file().ok_or("The catalog release has no package file")?;
+    if file.size == 0 || file.size > 64 * 1024 * 1024 {
+        return Err("The .hmod package size is outside the allowed 64 MiB limit".into());
+    }
+
+    let downloads = game.join("mod-browser").join("downloads");
+    if std::fs::symlink_metadata(&downloads).is_ok_and(|m| m.file_type().is_symlink()) {
+        return Err("Refusing a redirected mod download directory".into());
+    }
+    std::fs::create_dir_all(&downloads).map_err(|e| e.to_string())?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_nanos();
+    let stage = downloads.join(format!("minecraftmod-{}-{stamp}", project.id));
+    let result = (|| {
+        let package_path = source.fetch(file, &stage, progress)?;
+        let package = horizon_mods::Package::read(&package_path)
+            .map_err(|e| format!("Horizon rejected this .hmod: {e}"))?;
+        if package.manifest.id != project.id || package.manifest.version != version.number {
+            return Err("The downloaded .hmod identity/version does not match the catalog".into());
+        }
+
+        let directory = game.join("horizon-mods");
+        if std::fs::symlink_metadata(&directory).is_ok_and(|m| m.file_type().is_symlink()) {
+            return Err("Refusing a redirected Horizon mod directory".into());
+        }
+        std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+        let destination = directory.join(format!("{}.hmod", project.id));
+        if let Ok(meta) = std::fs::symlink_metadata(&destination) {
+            if !meta.is_file() || meta.file_type().is_symlink() {
+                return Err("The existing mod destination is not a regular file".into());
+            }
+        }
+        // The staged file and destination are on the same app-private filesystem; rename
+        // replaces an older regular package atomically without touching other mods.
+        std::fs::rename(&package_path, &destination).map_err(|e| e.to_string())?;
+        Ok(())
+    })();
+    let _ = std::fs::remove_dir_all(stage);
+    result
+}
+
 /// Temporary dev registration published as Minecraft Nintendo Switch by PrismarineJS.
 /// Account tokens and client secrets are never bundled.
 pub const MICROSOFT_CLIENT_ID: &str = "00000000441cc96b";
@@ -439,6 +502,10 @@ impl Catalog {
                 "{} Java mods - browsing only; this Rust client cannot run Java loaders",
                 items.len()
             )
+        } else if self.page == Page::Mods
+            && self.config.mod_source == crate::shader_catalog::Origin::MinecraftMod
+        {
+            format!("{} verified .hmod release(s) from MinecraftMod", items.len())
         } else if self.page == Page::Mods {
             let native = items.iter().filter(|p| source_only_mod(p)).count();
             format!(
@@ -472,7 +539,9 @@ impl Catalog {
             let mut query = Query::new(&text, kind);
             query.offset = offset;
             query.limit = 12;
-            let result = if page == Page::Shaders && source == browser::SourceId::Modrinth {
+            let result = if page == Page::Mods && source == browser::SourceId::MinecraftMod {
+                browser::minecraftmod::MinecraftMod.search(&query)
+            } else if page == Page::Shaders && source == browser::SourceId::Modrinth {
                 query.everything = true;
                 browser::modrinth::search_shader_packs(&query)
             } else if page == Page::Packs
@@ -526,7 +595,10 @@ impl Catalog {
                 ))
             && !(cfg!(target_pointer_width = "64")
                 && project.kind == Kind::Mod
-                && project.source == browser::SourceId::Horizon)
+                && matches!(
+                    project.source,
+                    browser::SourceId::Horizon | browser::SourceId::MinecraftMod
+                ))
         {
             return;
         }
@@ -543,7 +615,16 @@ impl Catalog {
         self.job(status, move || {
             std::fs::create_dir_all(&game).map_err(|e| e.to_string())?;
             let source = browser::source(project.source).ok_or("Unsupported download source")?;
-            let count = if project.kind == Kind::Shader
+            let count = if project.kind == Kind::Mod
+                && project.source == browser::SourceId::MinecraftMod
+            {
+                install_minecraftmod(source.as_ref(), &project, &game, &|p| {
+                    if p.is_finite() {
+                        *progress.lock().unwrap_or_else(|e| e.into_inner()) = p.clamp(0.0, 1.0);
+                    }
+                })?;
+                1
+            } else if project.kind == Kind::Shader
                 && project.source == browser::SourceId::Modrinth
             {
                 crate::shader_catalog::install(source.as_ref(), &project, &game, &|_name, p| {
