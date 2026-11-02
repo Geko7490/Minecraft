@@ -11,7 +11,7 @@ pub(super) enum Action {
     Play,
     Search,
     ShaderSource(crate::shader_catalog::Origin),
-    ModSource(crate::shader_catalog::Origin),
+    PackSource(crate::shader_catalog::Origin),
     Field(&'static str),
     FinishNameEdit,
     Install(usize),
@@ -490,7 +490,7 @@ impl Launcher {
                 for (i, origin) in origins.into_iter().enumerate() {
                     let rect = [w - 32.0 - (count - 1.0 - i as f32) * width, 134.0, width - 5.0, 32.0];
                     button(&mut ui, &mut self.targets, rect, origin.source().label(),
-                        if page == Page::Shaders { Action::ShaderSource(origin) } else { Action::ModSource(origin) }, false);
+                        if page == Page::Shaders { Action::ShaderSource(origin) } else { Action::PackSource(origin) }, false);
                     let selected = match page {
                         Page::Shaders => self.catalog.config.shader_source,
                         Page::Packs => self.catalog.config.pack_source,
@@ -1358,9 +1358,8 @@ impl Launcher {
                 crate::device_runtime::configure(self.catalog.config.device);
             }
 
-            Some(Action::ModSource(origin)) => {
-                if self.catalog.page == Page::Packs { self.catalog.config.pack_source = origin; }
-                else { self.catalog.config.mod_source = origin; }
+            Some(Action::PackSource(origin)) => {
+                self.catalog.config.pack_source = origin;
                 self.catalog.config.save(&self.home)?;
                 self.catalog.offset = 0;
                 self.catalog.browse(&self.home);
