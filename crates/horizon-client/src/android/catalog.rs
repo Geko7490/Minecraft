@@ -36,6 +36,15 @@ impl RendererMode {
 fn default_pack_source() -> crate::shader_catalog::Origin {
     crate::shader_catalog::Origin::Modrinth
 }
+
+fn curseforge_source() -> Result<browser::curseforge::CurseForge, String> {
+    if let Some(source) = browser::curseforge::CurseForge::from_env() {
+        return Ok(source);
+    }
+    let key = crate::secure_store::curseforge_key()?
+        .ok_or("CurseForge API key is not configured in Settings.")?;
+    Ok(browser::curseforge::CurseForge::with_key(key))
+}
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -473,11 +482,8 @@ impl Catalog {
                 browser::SourceId::Modrinth => {
                     query.everything = true; browser::modrinth::Modrinth.search(&query)
                 }
-                browser::SourceId::CurseForge => match crate::secure_store::curseforge_key() {
-                    Ok(Some(key)) => browser::curseforge::CurseForge::with_key(key).search(&query),
-                    Ok(None) => Err("CurseForge API key is not configured in Settings.".to_owned()),
-                    Err(error) => Err(error),
-                },
+                browser::SourceId::CurseForge => curseforge_source()
+                    .and_then(|source| source.search(&query)),
                 browser::SourceId::Horizon => browser::horizon::Registry.search(&query),
                 browser::SourceId::MinecraftMod => browser::horizon::MinecraftModRegistry.search(&query),
             };
@@ -521,9 +527,7 @@ impl Catalog {
         self.job(status, move || {
             std::fs::create_dir_all(&game).map_err(|e| e.to_string())?;
             let source: Box<dyn Source> = if project.source == browser::SourceId::CurseForge {
-                let key = crate::secure_store::curseforge_key()?
-                    .ok_or("CurseForge API key is not configured in Settings.")?;
-                Box::new(browser::curseforge::CurseForge::with_key(key))
+                Box::new(curseforge_source()?)
             } else {
                 browser::source(project.source).ok_or("Unsupported download source")?
             };
