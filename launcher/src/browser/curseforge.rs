@@ -45,6 +45,14 @@ pub(super) fn key(runtime: Option<String>, built: Option<&str>) -> Option<String
         .filter(|k| !k.is_empty())
 }
 
+impl Default for CurseForge {
+    fn default() -> Self {
+        Self::from_env().unwrap_or_else(|| Self {
+            key: String::new(),
+        })
+    }
+}
+
 impl CurseForge {
     /// The source, when a key exists; else None and CurseForge isn't offered.
     pub fn from_env() -> Option<Self> {
@@ -56,6 +64,9 @@ impl CurseForge {
     }
 
     fn get(&self, url: &str) -> Result<Value, String> {
+        if self.key.trim().is_empty() {
+            return Err("CurseForge API anahtarı ayarlanmamış. Lütfen HORIZON_CURSEFORGE_API_KEY ortam değişkenini tanımlayın.".into());
+        }
         let response = super::download::agent(url)
             .get(url)
             .set("x-api-key", &self.key)
@@ -234,5 +245,17 @@ impl Source for CurseForge {
             .collect();
         all.sort_by(|a, b| b.published.cmp(&a.published));
         Ok(all)
+    }
+
+    fn details(&self, project: &Project) -> Result<super::details::Details, String> {
+        let desc = self
+            .get(&format!("{API}/mods/{}/description", encode(&project.id)))
+            .ok()
+            .and_then(|v| v["data"].as_str().map(str::to_owned))
+            .unwrap_or_else(|| project.summary.clone());
+        Ok(super::details::Details {
+            body: desc,
+            ..super::details::Details::default()
+        })
     }
 }
