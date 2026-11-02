@@ -487,22 +487,15 @@ impl Source for Registry {
     }
 
     fn search(&self, query: &Query) -> Result<Vec<Project>, String> {
-        let source = if query.kind == Kind::Mod { SourceId::MinecraftMod } else { SourceId::Horizon };
-        let index = if source == SourceId::MinecraftMod { minecraftmod_index()? } else { index()? };
-        let found = search_source(&index, query, source);
-        if source == SourceId::Horizon { refresh_ratings(); }
+        let found = search(&*index()?, query);
+        refresh_ratings();
         Ok(found)
     }
 
     fn project(&self, id: &str) -> Result<Project, String> {
-        if let Ok(index) = minecraftmod_index() {
-            if let Some(p) = index.project(id) {
-                return project_of_source(p, SourceId::MinecraftMod)
-                    .ok_or_else(|| format!("{} is not an installable MinecraftMod entry.", p.name));
-            }
-        }
         let index = index()?;
-        let p = index.project(id).ok_or_else(|| format!("{id} isn't in Horizon's registry."))?;
+        let p = index.project(id)
+            .ok_or_else(|| format!("{id} isn't in Horizon's registry."))?;
         project_of(p).ok_or_else(|| format!("{} is a {} in Horizon's registry: this launcher can't install those yet.", p.name, p.kind.name()))
     }
 

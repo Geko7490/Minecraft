@@ -451,7 +451,9 @@ impl Catalog {
             let mut query = Query::new(&text, kind);
             query.offset = offset;
             query.limit = 12;
-            let result = if page == Page::Shaders && source == browser::SourceId::Modrinth {
+            let result = if page == Page::Mods {
+                browser::horizon::MinecraftModRegistry.search(&query)
+            } else if page == Page::Shaders && source == browser::SourceId::Modrinth {
                 query.everything = true;
                 browser::modrinth::search_shader_packs(&query)
             } else if page == Page::Packs

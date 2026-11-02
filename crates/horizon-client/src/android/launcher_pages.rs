@@ -462,7 +462,7 @@ impl Launcher {
                 &format!(
                     "{}{}",
                     if page == Page::Mods {
-                        Search: 
+                        "Search: "
                     } else {
                         "Search: "
                     },
