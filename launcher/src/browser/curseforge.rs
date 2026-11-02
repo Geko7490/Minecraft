@@ -37,6 +37,41 @@ fn kind_of(class_id: u64) -> Option<Kind> {
         .find(|k| class(*k) == class_id)
 }
 
+pub const KEY_FILE: &str = "curseforge_key.txt";
+
+/// Load the CurseForge API key: from environment, or from the saved key file, or compile-time env.
+pub fn load_key() -> Option<String> {
+    if let Ok(env_key) = std::env::var("HORIZON_CURSEFORGE_API_KEY") {
+        let trimmed = env_key.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_owned());
+        }
+    }
+    // Check saved key file
+    let path = crate::backend::game_home().join(KEY_FILE);
+    if let Ok(file_key) = std::fs::read_to_string(&path) {
+        let trimmed = file_key.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_owned());
+        }
+    }
+    option_env!("HORIZON_CURSEFORGE_API_KEY")
+        .map(|k| k.trim().to_owned())
+        .filter(|k| !k.is_empty())
+}
+
+/// Save the CurseForge API key to the launcher's game folder.
+pub fn save_key(key: &str) -> Result<(), String> {
+    let path = crate::backend::game_home().join(KEY_FILE);
+    std::fs::write(&path, key.trim())
+        .map_err(|e| format!("Failed to save CurseForge key: {e}"))
+}
+
+/// Check if a CurseForge key is configured.
+pub fn has_key() -> bool {
+    load_key().is_some()
+}
+
 /// The key: the environment's, else the one built in. Empty counts as none.
 pub(super) fn key(runtime: Option<String>, built: Option<&str>) -> Option<String> {
     runtime
@@ -47,29 +82,29 @@ pub(super) fn key(runtime: Option<String>, built: Option<&str>) -> Option<String
 
 impl Default for CurseForge {
     fn default() -> Self {
-        Self::from_env().unwrap_or_else(|| Self {
-            key: String::new(),
-        })
+        Self {
+            key: load_key().unwrap_or_default(),
+        }
     }
 }
 
 impl CurseForge {
     /// The source, when a key exists; else None and CurseForge isn't offered.
     pub fn from_env() -> Option<Self> {
-        key(
-            std::env::var("HORIZON_CURSEFORGE_API_KEY").ok(),
-            option_env!("HORIZON_CURSEFORGE_API_KEY"),
-        )
-        .map(|key| Self { key })
+        load_key().map(|key| Self { key })
     }
 
     fn get(&self, url: &str) -> Result<Value, String> {
-        if self.key.trim().is_empty() {
-            return Err("CurseForge API anahtarı ayarlanmamış. Lütfen HORIZON_CURSEFORGE_API_KEY ortam değişkenini tanımlayın.".into());
-        }
+        let key = if !self.key.trim().is_empty() {
+            self.key.clone()
+        } else if let Some(loaded) = load_key() {
+            loaded
+        } else {
+            return Err("CurseForge API anahtarı ayarlanmamış. Lütfen arayüzden veya HORIZON_CURSEFORGE_API_KEY ortam değişkeni ile tanımlayın.".into());
+        };
         let response = super::download::agent(url)
             .get(url)
-            .set("x-api-key", &self.key)
+            .set("x-api-key", &key)
             .set("Accept", "application/json")
             .call()
             .map_err(|e| match e {
