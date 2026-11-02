@@ -30,9 +30,10 @@ const KINDS: [(PackKind, &str, &str); 5] = [
 const SHOWN: [PackKind; 3] = [PackKind::Mod, PackKind::ResourcePack, PackKind::Shader];
 /// Java mods checked at once.
 const CHECKING: usize = 2;
-/// The sources to pick from on the Resource packs and Modpacks tabs; CurseForge is shown beside them as coming soon.
-const SOURCES: [(SourceId, &str); 2] = [
+/// The sources to pick from in the browser tabs.
+const SOURCES: [(SourceId, &str); 3] = [
     (SourceId::Modrinth, "Modrinth"),
+    (SourceId::CurseForge, "CurseForge"),
     (SourceId::Horizon, "Horizon"),
 ];
 const PAGE: usize = 20;
@@ -928,11 +929,10 @@ impl Launcher {
                 this.mods_search(0);
                 cx.notify();
             }));
-        // Only the kinds Modrinth serves pick their source: CurseForge is coming soon there,
-        // shown, inert, never searched (like the Microsoft account's "Coming soon").
+        // Sources can be switched for all kinds except Shaders (which are Horizon-only).
         // A Java instance's mods and resource packs come from Modrinth, for its version.
         let java = self.mods.java_for(self.mods.kind).is_some();
-        let source_note = (source_for(self.mods.kind) == SourceId::Modrinth && !java)
+        let source_note = (self.mods.kind != PackKind::Shader && !java)
             .then(|| div().flex().child(self.mods_source_switch(cx)));
         // The registry lists only what was made for Horizon: no "everything", no Modrinth filters.
         let registry = self.mods.source == SourceId::Horizon && !java;
@@ -1700,18 +1700,16 @@ impl Launcher {
     }
 }
 
-/// Where a kind's tab searches first: Horizon's registry, but Modrinth for resource packs and
-/// modpacks.
+/// Where a kind's tab searches first: Horizon's registry for shaders, Modrinth for others.
 fn source_for(kind: PackKind) -> SourceId {
     match kind {
-        PackKind::ResourcePack | PackKind::Modpack => SourceId::Modrinth,
-        _ => SourceId::Horizon,
+        PackKind::Shader => SourceId::Horizon,
+        _ => SourceId::Modrinth,
     }
 }
 
 impl Launcher {
-    /// The source switch: Modrinth or Horizon's registry, CurseForge shown as coming soon and not
-    /// clickable, like the Microsoft account's "Coming soon".
+    /// The source switch: Modrinth, CurseForge, or Horizon's registry.
     fn mods_source_switch(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let this = cx.entity().downgrade();
         source_switch(&self.theme, self.mods.source, move |source, _, cx| {
@@ -1733,19 +1731,7 @@ fn source_switch(
     current: SourceId,
     on_pick: impl Fn(SourceId, &mut Window, &mut App) + Clone + 'static,
 ) -> Stateful<Div> {
-    let soon = div()
-        .flex()
-        .items_center()
-        .h(px(theme::SEGMENT))
-        .px(px(14.))
-        .pb(px(2.))
-        .opacity(theme::DISABLED)
-        .child(
-            blocks::pixel(14., FontWeight::MEDIUM)
-                .text_color(t.muted)
-                .child(tr("CurseForge (coming soon)")),
-        );
-    segments("mods-source", &SOURCES, current, t, on_pick).child(soon)
+    segments("mods-source", &SOURCES, current, t, on_pick)
 }
 
 #[cfg(test)]
