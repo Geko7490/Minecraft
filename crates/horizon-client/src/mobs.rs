@@ -509,6 +509,44 @@ impl MobTypes {
                 },
             );
         }
+        // Mod-defined living entity types carry a source archetype marker in
+        // entity-types.json. Reuse that vanilla MobType so its species AI,
+        // movement, renderer, model, animation and sounds stay coherent.
+        let custom: Vec<(String, String)> = types
+            .as_object()
+            .into_iter()
+            .flat_map(|entries| entries.iter())
+            .filter_map(|(id, row)| {
+                if id.starts_with("minecraft:") {
+                    return None;
+                }
+                let template = row.get("horizon:template")?.as_str()?;
+                Some((id.clone(), template.to_owned()))
+            })
+            .collect();
+        for (id, template) in custom {
+            let Some(mut mob) = out.get(&template).cloned() else {
+                continue;
+            };
+            let defaults = exact.get(&id).cloned().unwrap_or_default();
+            let attr = |name: &str| defaults.get(&format!("minecraft:{name}")).copied();
+            mob.id = id.clone();
+            mob.max_health = attr("max_health").unwrap_or(mob.max_health as f64) as f32;
+            mob.speed = attr("movement_speed").unwrap_or(mob.speed);
+            mob.attack_damage = attr("attack_damage").unwrap_or(mob.attack_damage as f64) as f32;
+            mob.armor = attr("armor").unwrap_or(mob.armor as f64) as f32;
+            mob.armor_toughness =
+                attr("armor_toughness").unwrap_or(mob.armor_toughness as f64) as f32;
+            mob.knockback_resistance =
+                attr("knockback_resistance").unwrap_or(mob.knockback_resistance);
+            mob.follow_range = attr("follow_range").unwrap_or(mob.follow_range);
+            mob.jump_strength = attr("jump_strength").unwrap_or(mob.jump_strength);
+            mob.flying_speed = attr("flying_speed").unwrap_or(mob.flying_speed);
+            let mut attributes = (*mob.attributes).clone();
+            attributes.extend(defaults);
+            mob.attributes = Arc::new(attributes);
+            out.insert(id, mob);
+        }
         Ok(Self { types: out })
     }
 }
