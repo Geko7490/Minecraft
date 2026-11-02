@@ -9,9 +9,25 @@ pub enum Origin {
     #[default]
     Horizon,
     Modrinth,
-    MinecraftMod,
 }
 impl Origin {
+    pub fn source(self) -> SourceId {
+        match self {
+            Self::Horizon => SourceId::Horizon,
+            Self::Modrinth => SourceId::Modrinth,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ModOrigin {
+    #[default]
+    Horizon,
+    Modrinth,
+    MinecraftMod,
+}
+impl ModOrigin {
     pub fn source(self) -> SourceId {
         match self {
             Self::Horizon => SourceId::Horizon,
