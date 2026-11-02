@@ -473,9 +473,11 @@ impl Catalog {
                 browser::SourceId::Modrinth => {
                     query.everything = true; browser::modrinth::Modrinth.search(&query)
                 }
-                browser::SourceId::CurseForge => browser::curseforge::CurseForge::from_env()
-                    .ok_or_else(|| "CurseForge API key is not configured in Settings.".to_owned())
-                    .and_then(|source| source.search(&query)),
+                browser::SourceId::CurseForge => match crate::secure_store::curseforge_key() {
+                    Ok(Some(key)) => browser::curseforge::CurseForge::with_key(key).search(&query),
+                    Ok(None) => Err("CurseForge API key is not configured in Settings.".to_owned()),
+                    Err(error) => Err(error),
+                },
                 browser::SourceId::Horizon => browser::horizon::Registry.search(&query),
                 browser::SourceId::MinecraftMod => browser::horizon::MinecraftModRegistry.search(&query),
             };
@@ -518,7 +520,13 @@ impl Catalog {
             };
         self.job(status, move || {
             std::fs::create_dir_all(&game).map_err(|e| e.to_string())?;
-            let source = browser::source(project.source).ok_or("Unsupported download source")?;
+            let source: Box<dyn Source> = if project.source == browser::SourceId::CurseForge {
+                let key = crate::secure_store::curseforge_key()?
+                    .ok_or("CurseForge API key is not configured in Settings.")?;
+                Box::new(browser::curseforge::CurseForge::with_key(key))
+            } else {
+                browser::source(project.source).ok_or("Unsupported download source")?
+            };
             let count = if project.kind == Kind::Shader
                 && project.source == browser::SourceId::Modrinth
             {
