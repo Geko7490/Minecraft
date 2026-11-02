@@ -231,6 +231,22 @@ impl SecretStore for AndroidStore {
     }
 }
 
+/// Stable, dedicated Android Keystore record for the optional CurseForge resource-pack key.
+/// This identifier is separate from every Microsoft account UUID.
+const CURSEFORGE_KEY_ID: &str = "00000000-0000-0000-0000-000000000001";
+
+pub fn curseforge_key() -> Result<Option<String>, String> {
+    AndroidStore.get(CURSEFORGE_KEY_ID)
+}
+
+pub fn set_curseforge_key(value: &str) -> Result<(), String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err("CurseForge API key cannot be empty".into());
+    }
+    AndroidStore.set(CURSEFORGE_KEY_ID, value)
+}
+
 /// Development APK only: an isolated, synthetic credential exercises the real
 /// JNI implementation over two Android process launches. No login is involved.
 #[cfg(debug_assertions)]
