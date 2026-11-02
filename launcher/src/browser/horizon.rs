@@ -68,40 +68,94 @@ fn parse_minecraftmod_catalog(text: &str, local: bool) -> Result<Index, String> 
     use serde_json::{json, Value};
     let catalog: Value = serde_json::from_str(text)
         .map_err(|e| format!("MinecraftMod catalogue is not JSON: {e}"))?;
-    if catalog["schema"].as_u64() != Some(1) { return Err("MinecraftMod catalogue schema is not supported".into()); }
+    if catalog["schema"].as_u64() != Some(1) {
+        return Err("MinecraftMod catalogue schema is not supported".into());
+    }
     let items = catalog["mods"].as_array().ok_or("MinecraftMod catalogue has no mods array")?;
     let mut projects = Vec::new();
     for item in items {
-        if item["type"].as_str() != Some("hmod") { continue; }
+        if item["type"].as_str() != Some("hmod") {
+            continue;
+        }
         let id = item["id"].as_str().ok_or("catalogue mod has no id")?;
+        if id.is_empty() || id.len() > 64
+            || !id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        {
+            return Err(format!("MinecraftMod catalogue has invalid mod id: {id}"));
+        }
         let name = item["name"].as_str().ok_or("catalogue mod has no name")?;
         let description = item["description"].as_str().unwrap_or_default();
         let developer = item["developer"].as_str().ok_or("catalogue mod has no developer")?;
         let source = item["source"].as_str().ok_or("catalogue mod has no source")?;
         let license = item["license"].as_str().ok_or("catalogue mod has no license")?;
+        let entries = item["versions"].as_array()
+            .ok_or_else(|| format!("{id}: versions missing"))?;
         let mut versions = Vec::new();
-        for v in item["versions"].as_array().ok_or("catalogue mod has no versions")? {
-            let games = v["game_versions"].as_array().ok_or_else(|| format!("{id}: game_versions missing"))?;
+        for v in entries {
+            let version = v["version"].as_str()
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| format!("{id}: version missing"))?;
+            let file_name = v["file_name"].as_str()
+                .ok_or_else(|| format!("{id}@{version}: file_name missing"))?;
+            if file_name != format!("{id}-{version}.hmod") {
+                return Err(format!("{id}@{version}: invalid HMOD filename"));
+            }
+            let url = v["download_url"].as_str()
+                .ok_or_else(|| format!("{id}@{version}: download_url missing"))?;
+            if !url.starts_with(MINECRAFTMOD_RELEASE_PREFIX)
+                || !url.ends_with(&format!("/{file_name}"))
+            {
+                return Err(format!("{id}@{version}: download is not an official MinecraftMod Release asset"));
+            }
+            let size = v["size"].as_u64()
+                .filter(|size| (1..=64 * 1024 * 1024).contains(size))
+                .ok_or_else(|| format!("{id}@{version}: invalid HMOD size"))?;
+            let sha256 = v["sha256"].as_str()
+                .filter(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+                .ok_or_else(|| format!("{id}@{version}: invalid SHA-256"))?;
+            let api = v["api"].as_str()
+                .filter(|api| matches!(*api, "0.1" | "0.2" | "0.3"))
+                .ok_or_else(|| format!("{id}@{version}: unsupported mod API"))?;
+            let side = v["side"].as_str()
+                .filter(|side| matches!(*side, "client" | "server" | "both"))
+                .ok_or_else(|| format!("{id}@{version}: invalid side"))?;
+            let capabilities = v["capabilities"].as_array()
+                .ok_or_else(|| format!("{id}@{version}: capabilities missing"))?;
+            if capabilities.iter().any(|cap| {
+                !matches!(cap.as_str(), Some(
+                    "game-read" | "chat" | "hud" | "storage" | "command" | "registries"
+                    | "ui" | "render" | "input" | "players" | "world" | "recipes"
+                ))
+            }) {
+                return Err(format!("{id}@{version}: unsupported capability"));
+            }
+            let games = v["game_versions"].as_array()
+                .ok_or_else(|| format!("{id}@{version}: game_versions missing"))?;
             let game = games.iter().filter_map(Value::as_str).find(|g| *g == GAME)
                 .or_else(|| games.iter().filter_map(Value::as_str).next())
-                .ok_or_else(|| format!("{id}: game version missing"))?;
+                .ok_or_else(|| format!("{id}@{version}: game version missing"))?;
+            let published = v["published"].as_str()
+                .ok_or_else(|| format!("{id}@{version}: published missing"))?;
             versions.push(json!({
-                "version": v["version"].as_str().ok_or_else(|| format!("{id}: version missing"))?,
-                "published": v["published"].as_str().ok_or_else(|| format!("{id}: published missing"))?,
+                "version": version,
+                "published": published,
                 "changelog": v["changelog"].as_str().unwrap_or_default(),
-                "api": v["api"].as_str().ok_or_else(|| format!("{id}: API missing"))?,
-                "side": v["side"].as_str().ok_or_else(|| format!("{id}: side missing"))?,
-                "capabilities": v["capabilities"].as_array().cloned().unwrap_or_default(),
-                "game": game, "requires": [],
+                "api": api,
+                "side": side,
+                "capabilities": capabilities,
+                "game": game,
+                "requires": [],
                 "file": {
-                    "name": v["file_name"].as_str().ok_or_else(|| format!("{id}: file_name missing"))?,
-                    "url": v["download_url"].as_str().ok_or_else(|| format!("{id}: download_url missing"))?,
-                    "size": v["size"].as_u64().ok_or_else(|| format!("{id}: size invalid"))?,
-                    "sha256": v["sha256"].as_str().ok_or_else(|| format!("{id}: SHA-256 missing"))?
+                    "name": file_name,
+                    "url": url,
+                    "size": size,
+                    "sha256": sha256
                 }
             }));
         }
-        if versions.is_empty() { continue; }
+        if versions.is_empty() {
+            continue;
+        }
         projects.push(json!({
             "id": id, "kind": "mod", "name": name, "summary": description,
             "description": description, "authors": [developer], "owners": [],
@@ -110,7 +164,12 @@ fn parse_minecraftmod_catalog(text: &str, local: bool) -> Result<Index, String> 
             "key": null, "versions": versions, "downloads": 0
         }));
     }
-    let value = json!({"schema":1,"generated":catalog["generated"].as_str().unwrap_or(""),"projects":projects,"revoked":[]});
+    let value = json!({
+        "schema": 1,
+        "generated": catalog["generated"].as_str().unwrap_or(""),
+        "projects": projects,
+        "revoked": []
+    });
     let encoded = serde_json::to_string(&value).map_err(|e| e.to_string())?;
     if local { Index::parse_local(&encoded) } else { Index::parse(&encoded) }
 }
