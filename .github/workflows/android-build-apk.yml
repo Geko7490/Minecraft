@@ -1,0 +1,81 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      abi:
+        description: 'Target Android ABI'
+        required: true
+        default: 'arm64-v8a'
+        type: choice
+        options:
+          - arm64-v8a
+          - x86_64
+          - armeabi-v7a
+          - x86
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-apk:
+    name: Build APK (${{ inputs.abi || 'arm64-v8a' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    env:
+      HORIZON_TELEMETRY_URL: "off"
+      CARGO_BUILD_JOBS: "4"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Rust toolchain
+        run: |
+          rustup target add aarch64-linux-android x86_64-linux-android armv7-linux-androideabi i686-linux-android
+
+      - name: Install Android NDK & SDK Platform
+        run: |
+          sdkmanager "ndk;28.2.13676358" "build-tools;35.0.0" "platforms;android-35"
+
+      - name: Install Gradle 8.14
+        run: |
+          wget -q https://services.gradle.org/distributions/gradle-8.14-bin.zip
+          unzip -q gradle-8.14-bin.zip
+          echo "GRADLE_BIN=$GITHUB_WORKSPACE/gradle-8.14/bin/gradle" >> $GITHUB_ENV
+          chmod +x $GITHUB_WORKSPACE/gradle-8.14/bin/gradle
+
+      - name: Prepare Engine Tables (android_prepare.py)
+        run: |
+          python3 tools/android_prepare.py --java-home "$JAVA_HOME"
+
+      - name: Build Android APK (android_build.py)
+        run: |
+          ABI="${{ inputs.abi || 'arm64-v8a' }}"
+          python3 tools/android_build.py \
+            --abi "$ABI" \
+            --public \
+            --profile release \
+            --sdk "$ANDROID_HOME" \
+            --java-home "$JAVA_HOME" \
+            --gradle "$GRADLE_BIN"
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Horizon-Android-${{ inputs.abi || 'arm64-v8a' }}
+          path: .local/android/apk/**/horizon-android-public.apk
+          if-no-files-found: error
