@@ -17,6 +17,7 @@ pub struct MinecraftMod;
 #[derive(Clone, Debug, Deserialize)]
 struct Catalog {
     schema: u32,
+    generated: String,
     #[serde(default)]
     mods: Vec<ModEntry>,
 }
@@ -44,8 +45,6 @@ struct ModVersion {
     size: u64,
     sha256: String,
     published: String,
-    #[serde(default)]
-    changelog: String,
 }
 
 static CACHE: Mutex<Option<(Instant, Arc<Catalog>)>> = Mutex::new(None);
@@ -69,6 +68,9 @@ fn parse_catalog(text: &str) -> Result<Catalog, String> {
     if catalog.schema != 1 {
         return Err(format!("Unsupported MinecraftMod catalog schema: {}", catalog.schema));
     }
+    if catalog.generated.trim().is_empty() {
+        return Err("MinecraftMod catalog has no generation timestamp".into());
+    }
     // Reject duplicate IDs and malformed entries instead of silently offering an unverified file.
     let mut ids = std::collections::BTreeSet::new();
     for item in &catalog.mods {
@@ -90,6 +92,7 @@ fn parse_catalog(text: &str) -> Result<Catalog, String> {
         for version in &item.versions {
             if version.version.trim().is_empty()
                 || version.game_versions.is_empty()
+                || version.published.trim().is_empty()
                 || !valid_release_url(&version.download_url)
                 || !version.download_url.ends_with(&format!("/{}", version.file_name))
                 || super::safe_name(&version.file_name).is_none()
