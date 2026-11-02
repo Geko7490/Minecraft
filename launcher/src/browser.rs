@@ -294,7 +294,7 @@ pub fn sources() -> Vec<Box<dyn Source>> {
 
 /// The source of that id, when this launcher can use it.
 pub fn source(id: SourceId) -> Option<Box<dyn Source>> {
-    if id == SourceId::MinecraftMod { return Some(Box::new(horizon::Registry)); }
+    if id == SourceId::MinecraftMod { return Some(Box::new(horizon::MinecraftModRegistry)); }
     sources().into_iter().find(|s| s.id() == id)
 }
 

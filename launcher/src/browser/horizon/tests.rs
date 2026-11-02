@@ -309,3 +309,43 @@ fn ratings_keep_only_what_is_well_formed() {
         "https://playhorizon.dev/api/mods/auth/login?back=/mods/zoom"
     );
 }
+
+#[test]
+fn parses_the_minecraftmod_catalog_as_verified_hmod_projects() {
+    let catalog = serde_json::json!({
+        "schema": 1,
+        "generated": "2026-11-02T00:00:00Z",
+        "mods": [{
+            "id": "sample_mod",
+            "name": "Sample Mod",
+            "description": "A sample content mod",
+            "developer": "ExampleAuthor",
+            "type": "hmod",
+            "license": "MIT",
+            "source": "https://github.com/ExampleAuthor/sample-mod",
+            "versions": [{
+                "version": "1.0.0",
+                "game_versions": ["26.3"],
+                "api": "0.2",
+                "side": "both",
+                "capabilities": ["registries"],
+                "download_url": "https://github.com/Geko7490/MinecraftMod/releases/download/v1.0.0/sample_mod-1.0.0.hmod",
+                "file_name": "sample_mod-1.0.0.hmod",
+                "size": 1024,
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "published": "2026-11-02T00:00:00Z",
+                "changelog": "First release"
+            }]
+        }]
+    }).to_string();
+    let index = parse_minecraftmod_catalog(&catalog, false).unwrap();
+    let found = search_source(&index, &Query::new("", Kind::Mod), SourceId::MinecraftMod);
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].id, "sample_mod");
+    assert_eq!(found[0].source, SourceId::MinecraftMod);
+    assert_eq!(found[0].page, "https://github.com/Geko7490/MinecraftMod/tree/main/mods/sample_mod");
+    let version = &index.projects[0].versions[0];
+    assert_eq!(version.game, GAME);
+    assert_eq!(version.api, "0.2");
+    assert_eq!(version.file.sha256, "a".repeat(64));
+}

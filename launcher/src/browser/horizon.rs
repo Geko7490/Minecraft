@@ -592,6 +592,33 @@ impl Source for Registry {
     }
 }
 
+
+/// The MinecraftMod catalogue uses the same Horizon .hmod verifier and installer,
+/// but has its own source identity and never falls back to the legacy registry.
+pub struct MinecraftModRegistry;
+impl Source for MinecraftModRegistry {
+    fn id(&self) -> SourceId { SourceId::MinecraftMod }
+    fn search(&self, query: &Query) -> Result<Vec<Project>, String> {
+        let index = minecraftmod_index()?;
+        Ok(search_source(&index, query, SourceId::MinecraftMod))
+    }
+    fn project(&self, id: &str) -> Result<Project, String> {
+        let index = minecraftmod_index()?;
+        let p = index.project(id).ok_or_else(|| format!("{id} isn't in MinecraftMod."))?;
+        project_of_source(p, SourceId::MinecraftMod)
+            .ok_or_else(|| format!("{} is not an installable MinecraftMod entry.", p.name))
+    }
+    fn versions(&self, project: &Project) -> Result<Vec<Version>, String> {
+        Registry.versions(project)
+    }
+    fn details(&self, project: &Project) -> Result<Details, String> {
+        Registry.details(project)
+    }
+    fn fetch(&self, file: &FileRef, folder: &Path, progress: &dyn Fn(f32)) -> Result<PathBuf, String> {
+        fetch(file, folder, minecraftmod_local(), progress)
+    }
+}
+
 /// Downloads a registry file, checked; `file://` files only from a local index.
 fn fetch(
     file: &FileRef,
