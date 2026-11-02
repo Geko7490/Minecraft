@@ -813,7 +813,7 @@ impl Launcher {
             .flex()
             .items_center()
             .gap(px(10.))
-            .w(px(320.))
+            .w(px(360.))
             .h(px(theme::FIELD + 4.))
             .px(px(12.))
             .overflow_hidden()
@@ -829,7 +829,7 @@ impl Launcher {
                 focused,
                 false,
                 false,
-                "Search, then Enter",
+                "Search mods, packs, then Enter",
             ))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 window.focus(&this.mods.focus, cx);
@@ -937,6 +937,12 @@ impl Launcher {
         // The registry lists only what was made for Horizon: no "everything", no Modrinth filters.
         let registry = self.mods.source == SourceId::Horizon && !java;
         let filters = (!registry).then(|| self.mods_filters(cx));
+        let search_btn = button("mods-search-action", "Search", Kind::Secondary, &t).on_click(
+            cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.mods_search(0);
+                cx.notify();
+            }),
+        );
         let controls = div()
             .flex()
             .flex_col()
@@ -948,6 +954,7 @@ impl Launcher {
                     .items_center()
                     .gap(px(12.))
                     .child(self.mods_field(cx))
+                    .child(search_btn)
                     .when(!registry && !java, |d| d.child(toggle)),
             )
             .children(source_note)
@@ -1583,11 +1590,17 @@ impl Launcher {
                 Support::Partial(_) => t.warn,
                 Support::No(_) => t.muted,
             };
-            let mut right = div().flex().items_center().gap(px(8.)).child(blocks::badge(
-                support.label(),
-                color,
-                &t,
-            ));
+            let source_color = match p.source {
+                SourceId::Modrinth => t.accent,
+                SourceId::CurseForge => t.warn,
+                SourceId::Horizon => t.success,
+            };
+            let mut right = div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(blocks::badge(p.source.label(), source_color, &t))
+                .child(blocks::badge(support.label(), color, &t));
             let page_url = p.page.clone();
             if !page_url.is_empty() {
                 right = right.child(
@@ -1638,11 +1651,24 @@ impl Launcher {
             if !p.license.is_empty() {
                 by.push(p.license.clone());
             }
+            let mut tags_info = Vec::new();
+            if !p.loaders.is_empty() {
+                tags_info.push(p.loaders.join(", "));
+            }
+            if let Some(v) = p.game_versions.first() {
+                tags_info.push(format!("v{v}"));
+            }
             let detail = div()
                 .flex()
                 .flex_col()
                 .child(div().truncate().child(p.summary.clone()))
                 .child(by.join(" · "))
+                .children((!tags_info.is_empty()).then(|| {
+                    div()
+                        .font_family(theme::MONO)
+                        .text_color(t.ink_soft)
+                        .child(tags_info.join(" · "))
+                }))
                 .children(
                     (p.source == SourceId::Horizon)
                         .then(|| stars(&p.id, &t))
