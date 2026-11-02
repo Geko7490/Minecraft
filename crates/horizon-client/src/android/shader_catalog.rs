@@ -9,12 +9,14 @@ pub enum Origin {
     #[default]
     Horizon,
     Modrinth,
+    MinecraftMod,
 }
 impl Origin {
     pub fn source(self) -> SourceId {
         match self {
             Self::Horizon => SourceId::Horizon,
             Self::Modrinth => SourceId::Modrinth,
+            Self::MinecraftMod => SourceId::MinecraftMod,
         }
     }
 }
