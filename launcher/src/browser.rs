@@ -25,6 +25,8 @@ pub mod java;
 pub mod java_instance;
 #[path = "browser/modrinth.rs"]
 pub mod modrinth;
+#[path = "browser/minecraftmod.rs"]
+pub mod minecraftmod;
 
 use serde::{Deserialize, Serialize};
 
@@ -85,6 +87,8 @@ pub enum SourceId {
     CurseForge,
     /// Horizon's own registry of reviewed mods, modpacks and resource packs ([`horizon`]).
     Horizon,
+    /// The independently maintained MinecraftMod GitHub catalog.
+    MinecraftMod,
 }
 
 impl SourceId {
@@ -93,6 +97,7 @@ impl SourceId {
             SourceId::Modrinth => "Modrinth",
             SourceId::CurseForge => "CurseForge",
             SourceId::Horizon => "Horizon",
+            SourceId::MinecraftMod => "MinecraftMod",
         }
     }
 }
@@ -284,7 +289,11 @@ pub const SHADERS_ON_HORIZON: &str =
 /// soon: its API needs a paid key, so no search or install goes to it; `curseforge` is kept for
 /// then.
 pub fn sources() -> Vec<Box<dyn Source>> {
-    vec![Box::new(modrinth::Modrinth), Box::new(horizon::Registry)]
+    vec![
+        Box::new(modrinth::Modrinth),
+        Box::new(horizon::Registry),
+        Box::new(minecraftmod::MinecraftMod),
+    ]
 }
 
 /// The source of that id, when this launcher can use it.
