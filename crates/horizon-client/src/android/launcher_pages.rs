@@ -448,7 +448,7 @@ impl Launcher {
                 142.0,
                 color::TEXT,
                 if page == Page::Mods {
-                    "Horizon Mods"
+                    "MinecraftMod"
                 } else if page == Page::Shaders {
                     if w < 360.0 { "Shaders" } else { "Shader Packs" }
                 } else {
@@ -462,7 +462,7 @@ impl Launcher {
                 &format!(
                     "{}{}",
                     if page == Page::Mods {
-                        "Search / .hmod URL: "
+                        Search: 
                     } else {
                         "Search: "
                     },
@@ -475,15 +475,11 @@ impl Launcher {
                 &mut ui,
                 &mut self.targets,
                 [w - 190.0, 174.0, 158.0, 44.0],
-                if page == Page::Mods && self.catalog.query.trim().starts_with("https://") {
-                    "Import .hmod"
-                } else {
-                    "Search"
-                },
+                "Search",
                 Action::Search,
                 true,
             );
-            if matches!(page, Page::Shaders | Page::Mods) {
+            if page == Page::Shaders {
                 use crate::shader_catalog::Origin;
                 let width = ((w - 185.0) / 2.0).clamp(58.0, 120.0);
                 for (i, origin) in [Origin::Horizon, Origin::Modrinth].into_iter().enumerate() {
@@ -493,11 +489,7 @@ impl Launcher {
                         &mut self.targets,
                         rect,
                         origin.source().label(),
-                        if page == Page::Mods {
-                            Action::ModSource(origin)
-                        } else {
-                            Action::ShaderSource(origin)
-                        },
+                        Action::ShaderSource(origin),
                         false,
                     );
                     if (if page == Page::Mods {
@@ -511,13 +503,7 @@ impl Launcher {
                 }
             }
             let hint = match page {
-                Page::Mods
-                    if self.catalog.config.mod_source
-                        == crate::shader_catalog::Origin::Modrinth =>
-                {
-                    "Modrinth Java mods are browse-only; Fabric/Forge/NeoForge cannot run here"
-                }
-                Page::Mods => "Search Horizon mods or paste an HTTPS .hmod link",
+                Page::Mods => "Browse and install sandboxed .hmod mods from MinecraftMod",
                 Page::Shaders
                     if self.catalog.config.shader_source
                         == crate::shader_catalog::Origin::Modrinth =>
@@ -551,9 +537,7 @@ impl Launcher {
                 Action::Import(kind),
                 false,
             );
-            let bundled: Vec<_> = if page == Page::Mods
-                && self.catalog.config.mod_source == crate::shader_catalog::Origin::Horizon
-            {
+            let bundled: Vec<_> = if page == Page::Mods {
                 let query = self.catalog.query.to_lowercase();
                 horizon_client::mod_list::ANDROID_BUNDLED
                     .into_iter()
@@ -571,7 +555,7 @@ impl Launcher {
                 .enumerate()
                 .filter(|(_, p)| {
                     !(page == Page::Mods
-                        && p.source == crate::browser::SourceId::Horizon
+                        && matches!(p.source, crate::browser::SourceId::Horizon | crate::browser::SourceId::MinecraftMod)
                         && horizon_client::mod_list::ANDROID_BUNDLED
                             .iter()
                             .any(|(id, _, _)| *id == p.id))
@@ -616,8 +600,7 @@ impl Launcher {
                 let download = self.catalog.download_label(p);
                 if download.is_none()
                     && !crate::catalog::source_only_mod(p)
-                    && !(p.kind == crate::browser::Kind::Mod
-                        && p.source == crate::browser::SourceId::Modrinth)
+
                 {
                     self.list_targets
                         .push(([w - 150.0, y, 118.0, 70.0], Action::Install(i)));
@@ -631,17 +614,6 @@ impl Launcher {
                 ui.text(Face::Regular, 14.0, 32.0, y + 29.0, color::MUTED, &summary);
                 if let Some(state) = download {
                     ui.text(Face::Medium, 16.0, w - 150.0, y + 12.0, color::TEXT, &state);
-                } else if p.kind == crate::browser::Kind::Mod
-                    && p.source == crate::browser::SourceId::Modrinth
-                {
-                    ui.text(
-                        Face::Regular,
-                        14.0,
-                        w - 150.0,
-                        y + 12.0,
-                        color::MUTED,
-                        "Java mod",
-                    );
                 } else if crate::catalog::source_only_mod(p) {
                     ui.text(
                         Face::Regular,

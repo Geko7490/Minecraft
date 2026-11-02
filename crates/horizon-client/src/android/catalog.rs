@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, Mutex, mpsc},
 };
 pub fn source_only_mod(project: &Project) -> bool {
-    project.source == browser::SourceId::Horizon
+    matches!(project.source, browser::SourceId::Horizon | browser::SourceId::MinecraftMod)
         && project.loaders.iter().any(|loader| loader == "hnmod")
 }
 
@@ -399,21 +399,11 @@ impl Catalog {
         if !self.page.is_catalog() {
             return;
         }
-        if self.page == Page::Mods && self.query.trim().starts_with("https://") {
-            self.searches.cancel_interest();
-            if refresh {
-                self.import_native(home);
-            } else {
-                self.results.clear();
-                self.status = "Press Import .hmod to download this HTTPS link".into();
-            }
-            return;
-        }
         self.scroll = 0.0;
         let source = match self.page {
             Page::Packs => browser::SourceId::Modrinth,
             Page::Shaders => self.config.shader_source.source(),
-            Page::Mods => self.config.mod_source.source(),
+            Page::Mods => browser::SourceId::MinecraftMod,
             _ => browser::SourceId::Horizon,
         };
         let key = (self.page, source, self.query.trim().to_owned(), self.offset);
@@ -432,20 +422,9 @@ impl Catalog {
         {
             "No Horizon shader packs match this search. Try another query or import a .hshader."
                 .into()
-        } else if self.page == Page::Mods
-            && self.config.mod_source == crate::shader_catalog::Origin::Modrinth
-        {
-            format!(
-                "{} Java mods - browsing only; this Rust client cannot run Java loaders",
-                items.len()
-            )
         } else if self.page == Page::Mods {
             let native = items.iter().filter(|p| source_only_mod(p)).count();
-            format!(
-                "{} .hmod / {} source-only .hnmod (not supported yet)",
-                items.len() - native,
-                native
-            )
+            format!("{} .hmod mods from MinecraftMod", items.len() - native)
         } else {
             format!(
                 "{} results - select Install to check compatibility",
@@ -486,26 +465,6 @@ impl Catalog {
             let _ = tx.send(result);
         });
     }
-    pub fn import_native(&mut self, home: &Path) {
-        let url = self.query.trim().to_owned();
-        let game = self.config.game_home(home);
-        self.job("Downloading sandboxed .hmod over HTTPS...",move||{
-            use std::io::Read;
-            let mut bytes=Vec::new();
-            ureq::AgentBuilder::new().https_only(true).timeout_connect(std::time::Duration::from_secs(20)).timeout_read(std::time::Duration::from_secs(90)).build().get(&url).call().map_err(|e|e.to_string())?.into_reader().take(32*1024*1024+1).read_to_end(&mut bytes).map_err(|e|e.to_string())?;
-            if bytes.len()>32*1024*1024 {return Err("Horizon mod exceeds 32 MiB".into());}
-            let dir=game.join("horizon-mods");std::fs::create_dir_all(&dir).map_err(|e|e.to_string())?;
-            let stage=dir.join("import.partial");std::fs::write(&stage,bytes).map_err(|e|e.to_string())?;
-            let result=(||{
-                let package=horizon_mods::Package::read(&stage)?;
-                let destination=dir.join(format!("{}.hmod",package.manifest.id));
-                if destination.exists(){std::fs::copy(&destination,destination.with_extension("hmod.previous")).map_err(|e|e.to_string())?;}
-                std::fs::rename(&stage,destination).map_err(|e|e.to_string())?;
-                Ok(Reply::Done(format!("Installed {}. Enable it in Installed after reviewing its capabilities in game Mods.",package.manifest.name), horizon_client::content_files::Kind::Mods))
-            })();
-            let _=std::fs::remove_file(stage);result
-        });
-    }
     pub fn install(&mut self, home: &Path, index: usize) {
         let Some(project) = self.results.get(index).cloned() else {
             return;
@@ -526,7 +485,7 @@ impl Catalog {
                 ))
             && !(cfg!(target_pointer_width = "64")
                 && project.kind == Kind::Mod
-                && project.source == browser::SourceId::Horizon)
+                && project.source == browser::SourceId::MinecraftMod)
         {
             return;
         }
