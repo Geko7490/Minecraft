@@ -527,6 +527,12 @@ impl Launcher {
                 {
                     "Modrinth Java mods are browse-only; Fabric/Forge/NeoForge cannot run here"
                 }
+                Page::Mods
+                    if self.catalog.config.mod_source
+                        == crate::shader_catalog::Origin::MinecraftMod =>
+                {
+                    "Verified Horizon .hmod releases from your MinecraftMod repository"
+                }
                 Page::Mods => "Search Horizon mods or paste an HTTPS .hmod link",
                 Page::Shaders
                     if self.catalog.config.shader_source
