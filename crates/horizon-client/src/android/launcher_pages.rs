@@ -448,7 +448,7 @@ impl Launcher {
                 142.0,
                 color::TEXT,
                 if page == Page::Mods {
-                    "Horizon Mods"
+                    "MinecraftMod"
                 } else if page == Page::Shaders {
                     if w < 360.0 { "Shaders" } else { "Shader Packs" }
                 } else {
@@ -462,7 +462,7 @@ impl Launcher {
                 &format!(
                     "{}{}",
                     if page == Page::Mods {
-                        "Search / .hmod URL: "
+                         "Search: "
                     } else {
                         "Search: "
                     },
@@ -475,49 +475,35 @@ impl Launcher {
                 &mut ui,
                 &mut self.targets,
                 [w - 190.0, 174.0, 158.0, 44.0],
-                if page == Page::Mods && self.catalog.query.trim().starts_with("https://") {
-                    "Import .hmod"
-                } else {
-                    "Search"
-                },
+                "Search",
                 Action::Search,
                 true,
             );
-            if matches!(page, Page::Shaders | Page::Mods) {
+            if matches!(page, Page::Shaders | Page::Packs) {
                 use crate::shader_catalog::Origin;
-                let width = ((w - 185.0) / 2.0).clamp(58.0, 120.0);
-                for (i, origin) in [Origin::Horizon, Origin::Modrinth].into_iter().enumerate() {
-                    let rect = [w - 32.0 - (2 - i) as f32 * width, 134.0, width - 5.0, 32.0];
-                    button(
-                        &mut ui,
-                        &mut self.targets,
-                        rect,
-                        origin.source().label(),
-                        if page == Page::Mods {
-                            Action::ModSource(origin)
-                        } else {
-                            Action::ShaderSource(origin)
-                        },
-                        false,
-                    );
-                    if (if page == Page::Mods {
-                        self.catalog.config.mod_source
-                    } else {
-                        self.catalog.config.shader_source
-                    }) == origin
-                    {
-                        ui.border(rect[0], rect[1], rect[2], rect[3], 1.0, color::TEXT);
-                    }
+                let mut origins = vec![Origin::Horizon, Origin::Modrinth];
+                if page == Page::Packs && self.catalog.curseforge_configured {
+                    origins.push(Origin::CurseForge);
+                }
+                let count = origins.len().max(1) as f32;
+                let width = ((w - 185.0) / count).clamp(58.0, 120.0);
+                for (i, origin) in origins.into_iter().enumerate() {
+                    let rect = [w - 32.0 - (count - 1.0 - i as f32) * width, 134.0, width - 5.0, 32.0];
+                    button(&mut ui, &mut self.targets, rect, origin.source().label(),
+                        if page == Page::Shaders { Action::ShaderSource(origin) } else { Action::ModSource(origin) }, false);
+                    let selected = match page {
+                        Page::Shaders => self.catalog.config.shader_source,
+                        Page::Packs => self.catalog.config.pack_source,
+                        _ => origin,
+                    };
+                    if selected == origin { ui.border(rect[0], rect[1], rect[2], rect[3], 1.0, color::TEXT); }
                 }
             }
             let hint = match page {
-                Page::Mods
-                    if self.catalog.config.mod_source
-                        == crate::shader_catalog::Origin::Modrinth =>
-                {
-                    "Modrinth Java mods are browse-only; Fabric/Forge/NeoForge cannot run here"
-                }
-                Page::Mods => "Search Horizon mods or paste an HTTPS .hmod link",
+                Page::Mods => "Browse and install sandboxed .hmod mods from MinecraftMod",
+                Page::Packs if self.catalog.config.pack_source == crate::shader_catalog::Origin::CurseForge => {
+                    "CurseForge resource packs: supported ZIPs can be installed after version checks"
+                },
                 Page::Shaders
                     if self.catalog.config.shader_source
                         == crate::shader_catalog::Origin::Modrinth =>
@@ -551,9 +537,7 @@ impl Launcher {
                 Action::Import(kind),
                 false,
             );
-            let bundled: Vec<_> = if page == Page::Mods
-                && self.catalog.config.mod_source == crate::shader_catalog::Origin::Horizon
-            {
+            let bundled: Vec<_> = if page == Page::Mods {
                 let query = self.catalog.query.to_lowercase();
                 horizon_client::mod_list::ANDROID_BUNDLED
                     .into_iter()
@@ -571,7 +555,7 @@ impl Launcher {
                 .enumerate()
                 .filter(|(_, p)| {
                     !(page == Page::Mods
-                        && p.source == crate::browser::SourceId::Horizon
+                        && matches!(p.source, crate::browser::SourceId::Horizon | crate::browser::SourceId::MinecraftMod)
                         && horizon_client::mod_list::ANDROID_BUNDLED
                             .iter()
                             .any(|(id, _, _)| *id == p.id))
@@ -617,7 +601,7 @@ impl Launcher {
                 if download.is_none()
                     && !crate::catalog::source_only_mod(p)
                     && !(p.kind == crate::browser::Kind::Mod
-                        && p.source == crate::browser::SourceId::Modrinth)
+                        && matches!(p.source, crate::browser::SourceId::Modrinth | crate::browser::SourceId::CurseForge))
                 {
                     self.list_targets
                         .push(([w - 150.0, y, 118.0, 70.0], Action::Install(i)));
@@ -632,7 +616,7 @@ impl Launcher {
                 if let Some(state) = download {
                     ui.text(Face::Medium, 16.0, w - 150.0, y + 12.0, color::TEXT, &state);
                 } else if p.kind == crate::browser::Kind::Mod
-                    && p.source == crate::browser::SourceId::Modrinth
+                    && matches!(p.source, crate::browser::SourceId::Modrinth | crate::browser::SourceId::CurseForge)
                 {
                     ui.text(
                         Face::Regular,
@@ -880,6 +864,7 @@ impl Launcher {
                     Action::WorldFiles,
                 ),
                 ("Profile", format!("Profile {}", c.profile), Action::Profile),
+                ("CurseForge API key", "Enter your own developer key".into(), Action::Field("curseforge_api_key")),
                 (
                     "Orientation",
                     c.orientation.label().to_owned(),
@@ -1126,6 +1111,7 @@ impl Launcher {
                 "name" => self.catalog.config.name.clone(),
                 "server" => self.catalog.config.server.clone(),
                 "render_scale" => self.catalog.render_scale_text.clone(),
+                "curseforge_api_key" => format!("API key: {} characters", self.catalog.curseforge_key_length()),
                 _ => format!("Search: {}", self.catalog.query),
             };
             for ([x, y, w, _], action) in &self.targets {
@@ -1373,7 +1359,8 @@ impl Launcher {
             }
 
             Some(Action::ModSource(origin)) => {
-                self.catalog.config.mod_source = origin;
+                if self.catalog.page == Page::Packs { self.catalog.config.pack_source = origin; }
+                else { self.catalog.config.mod_source = origin; }
                 self.catalog.config.save(&self.home)?;
                 self.catalog.offset = 0;
                 self.catalog.browse(&self.home);
@@ -1493,6 +1480,7 @@ impl Launcher {
                     "server" => &self.catalog.config.server,
                     "render_scale" => &self.catalog.render_scale_text,
                     "client_id" => &self.catalog.config.microsoft_client_id,
+                    "curseforge_api_key" => "",
                     _ => &self.catalog.query,
                 };
                 crate::platform::show(initial);

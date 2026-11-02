@@ -253,3 +253,10 @@ Skins served over https show the default skin unless already cached; pack icons 
 Made by [Ludovic Marie](https://lu4ovic.com) ([@ludovic111](https://github.com/ludovic111)).
 
 </details>
+
+
+## Android mod catalogue
+
+The Android **Mods** tab downloads Horizon `.hmod` content mods from [Geko7490/MinecraftMod](https://github.com/Geko7490/MinecraftMod). The app fetches the repository's JSON catalogue and verifies each GitHub Release asset against its SHA-256 and exact size before installing. Fabric/Forge Java mods and native `.hnmod` bundles are not supported by this Android installer.
+
+Developers: see the [MinecraftMod modding guide](https://github.com/Geko7490/MinecraftMod/blob/main/docs/MODDING.md) and [Ruby example](https://github.com/Geko7490/MinecraftMod/tree/main/examples/ruby-content).

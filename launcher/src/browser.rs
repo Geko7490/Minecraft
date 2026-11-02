@@ -83,8 +83,10 @@ impl Kind {
 pub enum SourceId {
     Modrinth,
     CurseForge,
-    /// Horizon's own registry of reviewed mods, modpacks and resource packs ([`horizon`]).
+    /// Horizon's legacy registry for native shaders and existing content.
     Horizon,
+    /// Community .hmod content mods from Geko7490/MinecraftMod.
+    MinecraftMod,
 }
 
 impl SourceId {
@@ -93,6 +95,7 @@ impl SourceId {
             SourceId::Modrinth => "Modrinth",
             SourceId::CurseForge => "CurseForge",
             SourceId::Horizon => "Horizon",
+            SourceId::MinecraftMod => "MinecraftMod",
         }
     }
 }
@@ -286,6 +289,7 @@ pub fn sources() -> Vec<Box<dyn Source>> {
     vec![
         Box::new(modrinth::Modrinth),
         Box::new(curseforge::CurseForge::default()),
+        Box::new(horizon::MinecraftModRegistry),
         Box::new(horizon::Registry),
     ]
 }

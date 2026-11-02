@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, Mutex, mpsc},
 };
 pub fn source_only_mod(project: &Project) -> bool {
-    project.source == browser::SourceId::Horizon
+    matches!(project.source, browser::SourceId::Horizon | browser::SourceId::MinecraftMod)
         && project.loaders.iter().any(|loader| loader == "hnmod")
 }
 
@@ -33,6 +33,9 @@ impl RendererMode {
     }
 }
 
+fn default_pack_source() -> crate::shader_catalog::Origin {
+    crate::shader_catalog::Origin::Modrinth
+}
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -56,6 +59,8 @@ pub struct Config {
     pub device: crate::device_preferences::Settings,
     pub shader_source: crate::shader_catalog::Origin,
     pub mod_source: crate::shader_catalog::Origin,
+    #[serde(default = "default_pack_source")]
+    pub pack_source: crate::shader_catalog::Origin,
 }
 
 pub use horizon_client::android_gamepad::InputMode as InputHost;
@@ -196,6 +201,8 @@ pub struct Catalog {
     pub config: Config,
     pub editing: Option<&'static str>,
     pub render_scale_text: String,
+    curseforge_key_text: String,
+    pub curseforge_configured: bool,
     worker: Option<mpsc::Receiver<Result<Reply, String>>>,
     search_worker: Option<mpsc::Receiver<Result<Vec<Project>, String>>>,
     searches: crate::search_queue::Queue<(Page, browser::SourceId, String, usize), Vec<Project>>,
@@ -228,6 +235,10 @@ impl Catalog {
             config,
             editing: None,
             render_scale_text: String::new(),
+            curseforge_key_text: String::new(),
+            curseforge_configured: std::env::var("HORIZON_CURSEFORGE_API_KEY").ok()
+                .is_some_and(|key| !key.trim().is_empty())
+                || crate::secure_store::curseforge_key().ok().flatten().is_some(),
             worker: None,
             search_worker: None,
             searches: crate::search_queue::Queue::new(),
@@ -294,6 +305,10 @@ impl Catalog {
             }
         }
         self.local.sort_by_key(|e| e.title.to_lowercase());
+    }
+    /// Number of characters currently entered in the API-key field; never exposes the key itself.
+    pub fn curseforge_key_length(&self) -> usize {
+        self.curseforge_key_text.chars().count()
     }
     pub fn busy(&self) -> bool {
         self.worker.is_some()
@@ -399,21 +414,11 @@ impl Catalog {
         if !self.page.is_catalog() {
             return;
         }
-        if self.page == Page::Mods && self.query.trim().starts_with("https://") {
-            self.searches.cancel_interest();
-            if refresh {
-                self.import_native(home);
-            } else {
-                self.results.clear();
-                self.status = "Press Import .hmod to download this HTTPS link".into();
-            }
-            return;
-        }
         self.scroll = 0.0;
         let source = match self.page {
-            Page::Packs => browser::SourceId::Modrinth,
+            Page::Packs => self.config.pack_source.source(),
             Page::Shaders => self.config.shader_source.source(),
-            Page::Mods => self.config.mod_source.source(),
+            Page::Mods => browser::SourceId::MinecraftMod,
             _ => browser::SourceId::Horizon,
         };
         let key = (self.page, source, self.query.trim().to_owned(), self.offset);
@@ -432,20 +437,9 @@ impl Catalog {
         {
             "No Horizon shader packs match this search. Try another query or import a .hshader."
                 .into()
-        } else if self.page == Page::Mods
-            && self.config.mod_source == crate::shader_catalog::Origin::Modrinth
-        {
-            format!(
-                "{} Java mods - browsing only; this Rust client cannot run Java loaders",
-                items.len()
-            )
         } else if self.page == Page::Mods {
             let native = items.iter().filter(|p| source_only_mod(p)).count();
-            format!(
-                "{} .hmod / {} source-only .hnmod (not supported yet)",
-                items.len() - native,
-                native
-            )
+            format!("{} .hmod mods from MinecraftMod", items.len() - native)
         } else {
             format!(
                 "{} results - select Install to check compatibility",
@@ -472,38 +466,20 @@ impl Catalog {
             let mut query = Query::new(&text, kind);
             query.offset = offset;
             query.limit = 12;
-            let result = if page == Page::Shaders && source == browser::SourceId::Modrinth {
-                query.everything = true;
-                browser::modrinth::search_shader_packs(&query)
-            } else if page == Page::Packs
-                || (page == Page::Mods && source == browser::SourceId::Modrinth)
-            {
-                query.everything = true;
-                browser::modrinth::Modrinth.search(&query)
-            } else {
-                browser::horizon::Registry.search(&query)
+            let result = match source {
+                browser::SourceId::Modrinth if page == Page::Shaders => {
+                    query.everything = true; browser::modrinth::search_shader_packs(&query)
+                }
+                browser::SourceId::Modrinth => {
+                    query.everything = true; browser::modrinth::Modrinth.search(&query)
+                }
+                browser::SourceId::CurseForge => browser::curseforge::CurseForge::from_env()
+                    .ok_or_else(|| "CurseForge API key is not configured in Settings.".to_owned())
+                    .and_then(|source| source.search(&query)),
+                browser::SourceId::Horizon => browser::horizon::Registry.search(&query),
+                browser::SourceId::MinecraftMod => browser::horizon::MinecraftModRegistry.search(&query),
             };
             let _ = tx.send(result);
-        });
-    }
-    pub fn import_native(&mut self, home: &Path) {
-        let url = self.query.trim().to_owned();
-        let game = self.config.game_home(home);
-        self.job("Downloading sandboxed .hmod over HTTPS...",move||{
-            use std::io::Read;
-            let mut bytes=Vec::new();
-            ureq::AgentBuilder::new().https_only(true).timeout_connect(std::time::Duration::from_secs(20)).timeout_read(std::time::Duration::from_secs(90)).build().get(&url).call().map_err(|e|e.to_string())?.into_reader().take(32*1024*1024+1).read_to_end(&mut bytes).map_err(|e|e.to_string())?;
-            if bytes.len()>32*1024*1024 {return Err("Horizon mod exceeds 32 MiB".into());}
-            let dir=game.join("horizon-mods");std::fs::create_dir_all(&dir).map_err(|e|e.to_string())?;
-            let stage=dir.join("import.partial");std::fs::write(&stage,bytes).map_err(|e|e.to_string())?;
-            let result=(||{
-                let package=horizon_mods::Package::read(&stage)?;
-                let destination=dir.join(format!("{}.hmod",package.manifest.id));
-                if destination.exists(){std::fs::copy(&destination,destination.with_extension("hmod.previous")).map_err(|e|e.to_string())?;}
-                std::fs::rename(&stage,destination).map_err(|e|e.to_string())?;
-                Ok(Reply::Done(format!("Installed {}. Enable it in Installed after reviewing its capabilities in game Mods.",package.manifest.name), horizon_client::content_files::Kind::Mods))
-            })();
-            let _=std::fs::remove_file(stage);result
         });
     }
     pub fn install(&mut self, home: &Path, index: usize) {
@@ -526,7 +502,7 @@ impl Catalog {
                 ))
             && !(cfg!(target_pointer_width = "64")
                 && project.kind == Kind::Mod
-                && project.source == browser::SourceId::Horizon)
+                && project.source == browser::SourceId::MinecraftMod)
         {
             return;
         }
@@ -677,6 +653,7 @@ impl Catalog {
             Some("server") => &mut self.config.server,
             Some("render_scale") => &mut self.render_scale_text,
             Some("client_id") => &mut self.config.microsoft_client_id,
+            Some("curseforge_api_key") => &mut self.curseforge_key_text,
             _ => &mut self.query,
         };
         match out {
@@ -685,6 +662,18 @@ impl Catalog {
                 field.pop();
             }
             Output::Enter | Output::Close => {
+                if self.editing == Some("curseforge_api_key") {
+                    if !self.curseforge_key_text.trim().is_empty() {
+                        match crate::secure_store::set_curseforge_key(&self.curseforge_key_text) {
+                            Ok(()) => {
+                                self.curseforge_configured = true;
+                                self.status = "CurseForge API key saved in Android Keystore.".into();
+                            }
+                            Err(error) => { self.status = error; return; }
+                        }
+                    }
+                    self.curseforge_key_text.clear();
+                }
                 if self.editing == Some("render_scale") {
                     match crate::display::RenderScale::parse(&self.render_scale_text) {
                         Ok(scale) => {
