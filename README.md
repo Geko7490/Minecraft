@@ -15,6 +15,7 @@ Rust engine for Minecraft Java 26.3. Unofficial and in active development.
   360-degree movement, Auto Sprint and Sprint-button visibility.
 - Java multiplayer, including the Hypixel Arcade lobby shown below.
 - Native launcher, verified resource downloads, resource packs and `.hmod` import.
+- `.hmod` content mods can add blocks, items, projectile entity types and living entity archetypes; living mobs currently reuse supported vanilla AI and visuals with selected attribute overrides. See [mod development](docs/mods.md#content-mods-api-02).
 - Vulkan rendering modes and resolution scaling; Android keyboard, clipboard,
   AAudio sound and phone vibration through the existing game settings.
 - Account status and Android Keystore storage; the current sign-in configuration
