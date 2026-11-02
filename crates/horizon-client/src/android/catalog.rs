@@ -67,7 +67,6 @@ pub struct Config {
     #[serde(flatten)]
     pub device: crate::device_preferences::Settings,
     pub shader_source: crate::shader_catalog::Origin,
-    pub mod_source: crate::shader_catalog::Origin,
     #[serde(default = "default_pack_source")]
     pub pack_source: crate::shader_catalog::Origin,
 }
@@ -447,8 +446,7 @@ impl Catalog {
             "No Horizon shader packs match this search. Try another query or import a .hshader."
                 .into()
         } else if self.page == Page::Mods {
-            let native = items.iter().filter(|p| source_only_mod(p)).count();
-            format!("{} .hmod mods from MinecraftMod", items.len() - native)
+            format!("{} .hmod mods from MinecraftMod", items.len())
         } else {
             format!(
                 "{} results - select Install to check compatibility",
@@ -475,17 +473,33 @@ impl Catalog {
             let mut query = Query::new(&text, kind);
             query.offset = offset;
             query.limit = 12;
-            let result = match source {
-                browser::SourceId::Modrinth if page == Page::Shaders => {
-                    query.everything = true; browser::modrinth::search_shader_packs(&query)
+            // Android content mods have one authoritative source: MinecraftMod.
+            // Modrinth and CurseForge remain available only for resource packs/shaders.
+            let result = match page {
+                Page::Mods if source == browser::SourceId::MinecraftMod => {
+                    browser::horizon::MinecraftModRegistry.search(&query)
                 }
-                browser::SourceId::Modrinth => {
-                    query.everything = true; browser::modrinth::Modrinth.search(&query)
-                }
-                browser::SourceId::CurseForge => curseforge_source()
-                    .and_then(|source| source.search(&query)),
-                browser::SourceId::Horizon => browser::horizon::Registry.search(&query),
-                browser::SourceId::MinecraftMod => browser::horizon::MinecraftModRegistry.search(&query),
+                Page::Mods => Err("Android mods are available only from MinecraftMod.".into()),
+                Page::Shaders => match source {
+                    browser::SourceId::Modrinth => {
+                        query.everything = true;
+                        browser::modrinth::search_shader_packs(&query)
+                    }
+                    browser::SourceId::Horizon => browser::horizon::Registry.search(&query),
+                    _ => Err("Unsupported shader source.".into()),
+                },
+                Page::Packs => match source {
+                    browser::SourceId::Modrinth => {
+                        query.everything = true;
+                        browser::modrinth::Modrinth.search(&query)
+                    }
+                    browser::SourceId::CurseForge => {
+                        curseforge_source().and_then(|source| source.search(&query))
+                    }
+                    browser::SourceId::Horizon => browser::horizon::Registry.search(&query),
+                    _ => Err("Unsupported resource-pack source.".into()),
+                },
+                _ => Err("This page does not have a catalogue.".into()),
             };
             let _ = tx.send(result);
         });
@@ -496,6 +510,12 @@ impl Catalog {
         };
         if source_only_mod(&project) {
             self.status = "This .hnmod needs a separately compiled client. Android support is planned; sandboxed .hmod mods can be installed now.".into();
+            return;
+        }
+        if self.page == Page::Mods
+            && (project.source != browser::SourceId::MinecraftMod || project.kind != Kind::Mod)
+        {
+            self.status = "Android Mods accepts only .hmod entries from MinecraftMod.".into();
             return;
         }
         if self.busy() || self.download_label(&project).is_some() {
