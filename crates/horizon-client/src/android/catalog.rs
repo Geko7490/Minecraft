@@ -118,7 +118,7 @@ pub struct Config {
     #[serde(flatten)]
     pub device: crate::device_preferences::Settings,
     pub shader_source: crate::shader_catalog::Origin,
-    pub mod_source: crate::shader_catalog::Origin,
+    pub mod_source: crate::shader_catalog::ModOrigin,
 }
 
 pub use horizon_client::android_gamepad::InputMode as InputHost;
@@ -503,7 +503,7 @@ impl Catalog {
                 items.len()
             )
         } else if self.page == Page::Mods
-            && self.config.mod_source == crate::shader_catalog::Origin::MinecraftMod
+            && self.config.mod_source == crate::shader_catalog::ModOrigin::MinecraftMod
         {
             format!("{} verified .hmod release(s) from MinecraftMod", items.len())
         } else if self.page == Page::Mods {
