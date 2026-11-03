@@ -689,14 +689,24 @@ impl Launcher {
                         ui.text(Face::Regular, 13.0, 36.0, 332.0, color::MUTED, &format!("By {}  •  Minecraft {}", project.author, project.game_versions.join(", ")));
                         for (line, value) in project.summary.lines().enumerate().take(8) {
                             let clean = value.replace("[category:items] ", "").replace("[category:experimental] ", "").replace("[EXPERIMENTAL] ", "");
+                            let metadata = clean.starts_with("Latest version:")
+                                || clean.starts_with("Published:")
+                                || clean == "Changelog:";
                             let clean = ui.fit_text(Face::Regular, 14.0, &clean, w - 80.0);
-                            ui.text(Face::Regular, 14.0, 36.0, 360.0 + line as f32 * 25.0, color::TEXT, &clean);
+                            ui.text(
+                                Face::Regular,
+                                14.0,
+                                36.0,
+                                360.0 + line as f32 * 25.0,
+                                if metadata { color::ACCENT } else { color::TEXT },
+                                &clean,
+                            );
                         }
                     }
                 }
                 button(&mut ui, &mut self.targets, [32.0, h - 100.0, 120.0, 40.0], "Back", Action::CloseModDetails, false);
                 if let Some(index) = self.catalog.selected_mod {
-                    button(&mut ui, &mut self.targets, [w - 150.0, h - 100.0, 118.0, 40.0], "Install / Update", Action::Install(index), true);
+                    button(&mut ui, &mut self.targets, [w - 150.0, h - 100.0, 118.0, 40.0], self.catalog.install_button(project), Action::Install(index), true);
                 }
             }
             if page != Page::Mods || self.catalog.selected_mod.is_none() {
