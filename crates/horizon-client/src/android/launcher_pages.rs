@@ -699,22 +699,24 @@ impl Launcher {
                     button(&mut ui, &mut self.targets, [w - 150.0, h - 100.0, 118.0, 40.0], "Install / Update", Action::Install(index), true);
                 }
             }
-            button(
-                &mut ui,
-                &mut self.targets,
-                [32.0, h - 100.0, 120.0, 40.0],
-                "Previous",
-                Action::Previous,
-                false,
-            );
-            button(
-                &mut ui,
-                &mut self.targets,
-                [166.0, h - 100.0, 120.0, 40.0],
-                "Next",
-                Action::Next,
-                false,
-            );
+            if page != Page::Mods || self.catalog.selected_mod.is_none() {
+                button(
+                    &mut ui,
+                    &mut self.targets,
+                    [32.0, h - 100.0, 120.0, 40.0],
+                    "Previous",
+                    Action::Previous,
+                    false,
+                );
+                button(
+                    &mut ui,
+                    &mut self.targets,
+                    [166.0, h - 100.0, 120.0, 40.0],
+                    "Next",
+                    Action::Next,
+                    false,
+                );
+            }
         } else if page == Page::Installed {
             use horizon_client::content_files::Kind;
             let top = 156.0;
