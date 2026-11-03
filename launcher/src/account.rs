@@ -1569,20 +1569,20 @@ pub fn launch(
             pass.offline = said;
         }
         let after = serde_json::to_string(&secrets).ok();
-        if after != before
-            && let Some(text) = after
-        {
-            // The game still starts; the player hears why the next launch may ask again.
-            if let Err(e) = store.set(&account.uuid, &text) {
-                let said = format!(
-                    "{}'s renewed sign-in couldn't be saved in the keychain ({e}): you may \
-                         have to sign in again next time.",
-                    account.name
-                );
-                if let Ok(mut last) = UNSAVED.lock() {
-                    *last = Some(said.clone());
+        if after != before {
+            if let Some(text) = after {
+                // The game still starts; the player hears why the next launch may ask again.
+                if let Err(e) = store.set(&account.uuid, &text) {
+                    let said = format!(
+                        "{}'s renewed sign-in couldn't be saved in the keychain ({e}): you may \
+                             have to sign in again next time.",
+                        account.name
+                    );
+                    if let Ok(mut last) = UNSAVED.lock() {
+                        *last = Some(said.clone());
+                    }
+                    pass.unsaved = Some(said);
                 }
-                pass.unsaved = Some(said);
             }
         }
     }

@@ -303,10 +303,11 @@ fn fetch_remote_text(
 ) -> Result<Option<(String, Option<String>)>, String> {
     use std::io::Read;
 
-    let mut request = download::agent(at).get(at);
-    if let Some(etag) = etag.filter(|value| safe_etag(value)) {
-        request.set("If-None-Match", etag);
-    }
+    let request = download::agent(at).get(at);
+    let request = match etag.filter(|value| safe_etag(value)) {
+        Some(etag) => request.set("If-None-Match", etag),
+        None => request,
+    };
     let response = match request.call() {
         Ok(response) => response,
         Err(ureq::Error::Status(code, _)) => {
