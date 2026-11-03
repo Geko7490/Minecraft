@@ -10,7 +10,7 @@
 //! and totals are capped, vanilla ids cannot be redefined, and no two mods
 //! share a namespace ([`clash`]).
 use crate::manifest::{Capability, MANIFEST, Manifest};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
     io::Read,
@@ -299,7 +299,7 @@ pub const LIVING_ENTITY_ATTRIBUTES: [&str; 9] = [
 ];
 
 /// How a mod's declared AI relates to the template's registered goals.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum EntityAiMode {
     /// Keep the template's goals and add the declared ones.
@@ -314,7 +314,7 @@ fn default_attack_interval() -> i32 { 20 }
 fn default_target_interval() -> i32 { 10 }
 
 /// A safe, data-only subset of the engine's native mob goals.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EntityGoal {
     Float { priority: i32 },
@@ -345,7 +345,7 @@ pub enum EntityGoal {
 fn default_look_probability() -> f32 { 0.02 }
 
 /// Target selectors supported by content-only mods.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EntityTarget {
     HurtBy {
@@ -363,7 +363,7 @@ pub enum EntityTarget {
 }
 
 /// Declarative mob AI. It cannot execute scripts or arbitrary native code.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct EntityAi {
     #[serde(default)]
