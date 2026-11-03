@@ -32,7 +32,9 @@ const FRESH: Duration = Duration::from_secs(600);
 const MAX_INDEX: u64 = 16 << 20;
 /// The last index fetched, kept in the game folder for when the registry can't be reached.
 const CACHE: &str = "mod-browser/horizon-index.json";
+const CACHE_ETAG: &str = "mod-browser/horizon-index.etag";
 const MINECRAFTMOD_CACHE: &str = "mod-browser/minecraftmod-catalog.json";
+const MINECRAFTMOD_CACHE_ETAG: &str = "mod-browser/minecraftmod-catalog.etag";
 /// Players' ratings of every project (the registry service, crates/horizon-mod-registry).
 const RATINGS_URL: &str = "https://playhorizon.dev/api/mods/ratings";
 /// Where a player rates a project: the site's GitHub sign-in, which comes back to its page.
@@ -213,17 +215,22 @@ pub fn index() -> Result<Arc<Index>, String> {
             return Ok(index.clone());
         }
     }
-    let cache = crate::backend::game_home().join(CACHE);
-    let index = match fetch_index() {
-        Ok((index, text)) => {
+    let home = crate::backend::game_home();
+    let cache = home.join(CACHE);
+    let etag_cache = home.join(CACHE_ETAG);
+    let cached = fs::read_to_string(&cache).ok();
+    let etag = read_etag(&etag_cache);
+    let index = match fetch_index(cached.as_deref(), etag.as_deref()) {
+        Ok((index, text, new_etag)) => {
             if let Some(dir) = cache.parent() {
                 let _ = fs::create_dir_all(dir);
             }
             let _ = fs::write(&cache, text);
+            write_etag(&etag_cache, new_etag.as_deref());
             index
         }
         Err(e) => {
-            let kept = fs::read_to_string(&cache).map_err(|_| e.clone())?;
+            let kept = cached.ok_or_else(|| e.clone())?;
             match local() {
                 true => Index::parse_local(&kept),
                 false => Index::parse(&kept),
@@ -241,15 +248,20 @@ pub fn minecraftmod_index() -> Result<Arc<Index>, String> {
     if let Some((at, index)) = MINECRAFTMOD_LOADED.lock().unwrap().as_ref() {
         if at.elapsed() < FRESH { return Ok(index.clone()); }
     }
-    let cache = crate::backend::game_home().join(MINECRAFTMOD_CACHE);
-    let index = match fetch_minecraftmod_index() {
-        Ok((index, text)) => {
+    let home = crate::backend::game_home();
+    let cache = home.join(MINECRAFTMOD_CACHE);
+    let etag_cache = home.join(MINECRAFTMOD_CACHE_ETAG);
+    let cached = fs::read_to_string(&cache).ok();
+    let etag = read_etag(&etag_cache);
+    let index = match fetch_minecraftmod_index(cached.as_deref(), etag.as_deref()) {
+        Ok((index, text, new_etag)) => {
             if let Some(dir) = cache.parent() { let _ = fs::create_dir_all(dir); }
             let _ = fs::write(&cache, text);
+            write_etag(&etag_cache, new_etag.as_deref());
             index
         }
         Err(error) => {
-            let kept = fs::read_to_string(&cache).map_err(|_| error.clone())?;
+            let kept = cached.ok_or_else(|| error.clone())?;
             parse_minecraftmod_catalog(&kept, minecraftmod_local()).map_err(|_| error)?
         }
     };
@@ -257,45 +269,92 @@ pub fn minecraftmod_index() -> Result<Arc<Index>, String> {
     *MINECRAFTMOD_LOADED.lock().unwrap() = Some((Instant::now(), index.clone()));
     Ok(index)
 }
-fn fetch_minecraftmod_index() -> Result<(Index, String), String> {
-    use std::io::Read;
-    let at = minecraftmod_location();
-    let text = if at.starts_with("https://") {
-        let response = download::agent(&at).get(&at).call().map_err(|e| match e {
-            ureq::Error::Status(code, _) => format!("MinecraftMod catalogue answered {code}."),
-            ureq::Error::Transport(t) => format!("MinecraftMod catalogue can't be reached: {t}"),
-        })?;
-        let mut text = String::new();
-        response.into_reader().take(MAX_INDEX).read_to_string(&mut text).map_err(|e| e.to_string())?;
-        text
-    } else { fs::read_to_string(&at).map_err(|e| format!("{at}: {e}"))? };
-    let index = parse_minecraftmod_catalog(&text, minecraftmod_local())?;
-    Ok((index, text))
+fn safe_etag(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 1024
+        && value.bytes().all(|byte| byte.is_ascii() && !byte.is_ascii_control())
 }
 
-fn fetch_index() -> Result<(Index, String), String> {
+fn read_etag(path: &Path) -> Option<String> {
+    fs::read_to_string(path).ok().map(|value| value.trim().to_owned())
+        .filter(|value| safe_etag(value))
+}
+
+fn write_etag(path: &Path, etag: Option<&str>) {
+    match etag.filter(|value| safe_etag(value)) {
+        Some(value) => { let _ = fs::write(path, value); }
+        None => { let _ = fs::remove_file(path); }
+    }
+}
+
+/// Fetch text with HTTP validation; None means the saved body still matches the server.
+fn fetch_remote_text(
+    at: &str,
+    etag: Option<&str>,
+    description: &str,
+) -> Result<Option<(String, Option<String>)>, String> {
     use std::io::Read;
-    let at = location();
-    let text = if at.starts_with("https://") {
-        let response = download::agent(&at).get(&at).call().map_err(|e| match e {
-            ureq::Error::Status(code, _) => format!("The mod registry answered {code}."),
-            ureq::Error::Transport(t) => format!("The mod registry can't be reached: {t}"),
-        })?;
-        let mut text = String::new();
-        response
-            .into_reader()
-            .take(MAX_INDEX)
-            .read_to_string(&mut text)
-            .map_err(|e| e.to_string())?;
-        text
+    let mut request = download::agent(at).get(at);
+    if let Some(etag) = etag.filter(|value| safe_etag(value)) {
+        request.set("If-None-Match", etag);
+    }
+    let response = match request.call() {
+        Ok(response) => response,
+        Err(ureq::Error::Status(304, _)) => return Ok(None),
+        Err(ureq::Error::Status(code, _)) => {
+            return Err(format!("{description} answered {code}."));
+        }
+        Err(ureq::Error::Transport(error)) => {
+            return Err(format!("{description} can't be reached: {error}"));
+        }
+    };
+    let etag = response.header("ETag").filter(|value| safe_etag(value)).map(str::to_owned);
+    let mut text = String::new();
+    response.into_reader().take(MAX_INDEX).read_to_string(&mut text).map_err(|e| e.to_string())?;
+    Ok(Some((text, etag)))
+}
+
+fn fetch_minecraftmod_index(
+    cached: Option<&str>,
+    etag: Option<&str>,
+) -> Result<(Index, String, Option<String>), String> {
+    let at = minecraftmod_location();
+    let (text, etag) = if at.starts_with("https://") {
+        match fetch_remote_text(&at, etag, "MinecraftMod catalogue")? {
+            Some((text, etag)) => (text, etag),
+            None => (
+                cached.ok_or("MinecraftMod catalogue returned 304 without a cached catalogue")?.to_owned(),
+                etag.map(str::to_owned),
+            ),
+        }
     } else {
-        fs::read_to_string(&at).map_err(|e| format!("{at}: {e}"))?
+        (fs::read_to_string(&at).map_err(|e| format!("{at}: {e}"))?, None)
+    };
+    let index = parse_minecraftmod_catalog(&text, minecraftmod_local())?;
+    Ok((index, text, etag))
+}
+
+fn fetch_index(
+    cached: Option<&str>,
+    etag: Option<&str>,
+) -> Result<(Index, String, Option<String>), String> {
+    let at = location();
+    let (text, etag) = if at.starts_with("https://") {
+        match fetch_remote_text(&at, etag, "The mod registry")? {
+            Some((text, etag)) => (text, etag),
+            None => (
+                cached.ok_or("The mod registry returned 304 without a cached index")?.to_owned(),
+                etag.map(str::to_owned),
+            ),
+        }
+    } else {
+        (fs::read_to_string(&at).map_err(|e| format!("{at}: {e}"))?, None)
     };
     let index = match local() {
         true => Index::parse_local(&text)?,
         false => Index::parse(&text)?,
     };
-    Ok((index, text))
+    Ok((index, text, etag))
 }
 
 /// A project's ratings: 1 to 5 stars, their mean and how many.

@@ -349,3 +349,62 @@ fn parses_the_minecraftmod_catalog_as_verified_hmod_projects() {
     assert_eq!(version.api, "0.2");
     assert_eq!(version.file.sha256, "a".repeat(64));
 }
+
+#[test]
+fn catalog_requests_revalidate_cached_etags() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+
+    fn serve(response: &'static str) -> (String, thread::JoinHandle<String>) {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let worker = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0; 1024];
+            loop {
+                let count = stream.read(&mut buffer).unwrap();
+                assert_ne!(count, 0, "request ended before its headers");
+                request.extend_from_slice(&buffer[..count]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            stream.write_all(response.as_bytes()).unwrap();
+            String::from_utf8(request).unwrap()
+        });
+        (format!("http://{address}/index.json"), worker)
+    }
+
+    let (url, server) = serve(
+        "HTTP/1.1 304 Not Modified\r\nETag: \"catalog-v1\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+    );
+    let response = fetch_remote_text(&url, Some("\"catalog-v1\""), "test catalogue").unwrap();
+    assert!(response.is_none());
+    let request = server.join().unwrap();
+    assert!(request.lines().any(|line| line.eq_ignore_ascii_case("If-None-Match: \"catalog-v1\"")));
+}
+
+#[test]
+fn catalog_fetch_keeps_the_response_etag_with_its_body() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let address = listener.local_addr().unwrap();
+    let worker = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0; 1024];
+        let _ = stream.read(&mut request).unwrap();
+        stream.write_all(
+            b"HTTP/1.1 200 OK\r\nETag: \"catalog-v2\"\r\nContent-Length: 7\r\nConnection: close\r\n\r\n{\\\"ok\\\":1}",
+        ).unwrap();
+    });
+    let url = format!("http://{address}/index.json");
+    let response = fetch_remote_text(&url, None, "test catalogue").unwrap().unwrap();
+    worker.join().unwrap();
+    assert_eq!(response.0, "{\"ok\":1}");
+    assert_eq!(response.1.as_deref(), Some("\"catalog-v2\""));
+}
