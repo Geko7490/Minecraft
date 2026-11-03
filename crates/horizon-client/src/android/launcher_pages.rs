@@ -15,6 +15,9 @@ pub(super) enum Action {
     Field(&'static str),
     FinishNameEdit,
     Install(usize),
+    ModFilter(usize),
+    ModDetails(usize),
+    CloseModDetails,
     Import(horizon_client::content_files::Kind),
     OpenFolder(horizon_client::content_files::Kind),
     ToggleSection(usize),
@@ -514,7 +517,7 @@ impl Launcher {
                 _ => "Verified downloads / enable in Installed",
             };
             let hint = ui.fit_text(Face::Regular, 14.0, hint, w - 64.0);
-            ui.text(Face::Regular, 14.0, 32.0, 270.0, color::MUTED, &hint);
+            ui.text(Face::Regular, 14.0, 32.0, if page == Page::Mods { 306.0 } else { 270.0 }, color::MUTED, &hint);
             let kind = match page {
                 Page::Mods => horizon_client::content_files::Kind::Mods,
                 Page::Shaders => horizon_client::content_files::Kind::Shaders,
@@ -537,6 +540,13 @@ impl Launcher {
                 Action::Import(kind),
                 false,
             );
+            if page == Page::Mods {
+                for (index, label) in ["All", "Items", "Experimental"].iter().enumerate() {
+                    let width = ((w - 76.0) / 3.0).min(150.0);
+                    let rect = [32.0 + index as f32 * (width + 6.0), 260.0, width, 34.0];
+                    button(&mut ui, &mut self.targets, rect, label, Action::ModFilter(index), self.catalog.mod_filter == index);
+                }
+            }
             let bundled: Vec<_> = if page == Page::Mods {
                 let query = self.catalog.query.to_lowercase();
                 horizon_client::mod_list::ANDROID_BUNDLED
@@ -560,9 +570,14 @@ impl Launcher {
                             .iter()
                             .any(|(id, _, _)| *id == p.id))
                 })
+                .filter(|(_, p)| page != Page::Mods || match self.catalog.mod_filter {
+                    1 => p.summary.contains("[category:items]"),
+                    2 => p.summary.contains("[category:experimental]"),
+                    _ => true,
+                })
                 .collect();
             let row_count = bundled.len() + catalog_rows.len();
-            let top = 296.0;
+            let top = if page == Page::Mods { 330.0 } else { 296.0 };
             let bottom = h - 112.0;
             self.catalog.scroll = self
                 .catalog
@@ -609,10 +624,20 @@ impl Launcher {
                 if y < top || y + 70.0 > bottom {
                     continue;
                 }
-                let title = ui.fit_text(Face::Medium, 19.0, &p.title, w - 214.0);
-                let summary = ui.fit_text(Face::Regular, 14.0, &p.summary, w - 214.0);
+                let title = ui.fit_text(Face::Medium, 19.0, &p.title, w - if page == Page::Mods { 350.0 } else { 214.0 });
+                let card_summary = p.summary.split("\\n\\n").next().unwrap_or(&p.summary)
+                    .replace("[category:items] ", "")
+                    .replace("[category:experimental] ", "")
+                    .replace("[EXPERIMENTAL] ", "");
+                let summary = ui.fit_text(Face::Regular, 14.0, &card_summary, w - if page == Page::Mods { 350.0 } else { 214.0 });
                 ui.text(Face::Medium, 19.0, 32.0, y, color::TEXT, &title);
                 ui.text(Face::Regular, 14.0, 32.0, y + 29.0, color::MUTED, &summary);
+                if page == Page::Mods && p.summary.contains("[EXPERIMENTAL]") {
+                    ui.text(Face::Medium, 11.0, 32.0, y + 51.0, color::ACCENT, "EXPERIMENTAL");
+                    button(&mut ui, &mut self.targets, [w - 280.0, y, 118.0, 42.0], "Details", Action::ModDetails(i), false);
+                } else if page == Page::Mods {
+                    button(&mut ui, &mut self.targets, [w - 280.0, y, 118.0, 42.0], "Details", Action::ModDetails(i), false);
+                }
                 if let Some(state) = download {
                     ui.text(Face::Medium, 16.0, w - 150.0, y + 12.0, color::TEXT, &state);
                 } else if p.kind == crate::browser::Kind::Mod
@@ -654,6 +679,24 @@ impl Launcher {
                         Action::Install(i),
                         false,
                     );
+                }
+            }
+            if page == Page::Mods {
+                if let Some(index) = self.catalog.selected_mod {
+                    if let Some(project) = self.catalog.results.get(index) {
+                        ui.rounded(20.0, 286.0, w - 40.0, h - 410.0, 6.0, color::RAISED);
+                        ui.text(Face::Medium, 22.0, 36.0, 302.0, color::TEXT, &project.title);
+                        ui.text(Face::Regular, 13.0, 36.0, 332.0, color::MUTED, &format!("By {}  •  Minecraft {}", project.author, project.game_versions.join(", ")));
+                        for (line, value) in project.summary.lines().enumerate().take(8) {
+                            let clean = value.replace("[category:items] ", "").replace("[category:experimental] ", "").replace("[EXPERIMENTAL] ", "");
+                            let clean = ui.fit_text(Face::Regular, 14.0, &clean, w - 80.0);
+                            ui.text(Face::Regular, 14.0, 36.0, 360.0 + line as f32 * 25.0, color::TEXT, &clean);
+                        }
+                    }
+                }
+                button(&mut ui, &mut self.targets, [32.0, h - 100.0, 120.0, 40.0], "Back", Action::CloseModDetails, false);
+                if let Some(index) = self.catalog.selected_mod {
+                    button(&mut ui, &mut self.targets, [w - 150.0, h - 100.0, 118.0, 40.0], "Install / Update", Action::Install(index), true);
                 }
             }
             button(
@@ -1484,6 +1527,13 @@ impl Launcher {
                 };
                 crate::platform::show(initial);
             }
+            Some(Action::ModFilter(filter)) => {
+                self.catalog.mod_filter = filter;
+                self.catalog.selected_mod = None;
+                self.catalog.scroll = 0.0;
+            }
+            Some(Action::ModDetails(index)) => self.catalog.selected_mod = Some(index),
+            Some(Action::CloseModDetails) => self.catalog.selected_mod = None,
             Some(Action::Install(i)) => self.catalog.install(&self.home, i),
             Some(Action::Next) => {
                 self.catalog.offset += 12;
