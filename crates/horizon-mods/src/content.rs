@@ -298,6 +298,119 @@ pub const LIVING_ENTITY_ATTRIBUTES: [&str; 9] = [
     "minecraft:flying_speed",
 ];
 
+/// How a mod's declared AI relates to the template's registered goals.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EntityAiMode {
+    /// Keep the template's goals and add the declared ones.
+    #[default]
+    Extend,
+    /// Replace the template's goal and target selectors with the declared lists.
+    Replace,
+}
+
+fn default_ai_speed() -> f64 { 1.0 }
+fn default_attack_interval() -> i32 { 20 }
+fn default_target_interval() -> i32 { 10 }
+
+/// A safe, data-only subset of the engine's native mob goals.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum EntityGoal {
+    Float { priority: i32 },
+    MeleeAttack {
+        priority: i32,
+        #[serde(default = "default_ai_speed")]
+        speed: f64,
+        #[serde(default)]
+        follow_unseen: bool,
+        #[serde(default = "default_attack_interval")]
+        interval: i32,
+    },
+    Stroll {
+        priority: i32,
+        #[serde(default = "default_ai_speed")]
+        speed: f64,
+        #[serde(default = "yes")]
+        avoid_water: bool,
+    },
+    LookAtPlayer {
+        priority: i32,
+        range: f32,
+        #[serde(default = "default_look_probability")]
+        probability: f32,
+    },
+    RandomLookAround { priority: i32 },
+}
+fn default_look_probability() -> f32 { 0.02 }
+
+/// Target selectors supported by content-only mods.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum EntityTarget {
+    HurtBy {
+        priority: i32,
+        #[serde(default)]
+        alert: bool,
+    },
+    NearestPlayer {
+        priority: i32,
+        #[serde(default = "yes")]
+        must_see: bool,
+        #[serde(default = "default_target_interval")]
+        interval: i32,
+    },
+}
+
+/// Declarative mob AI. It cannot execute scripts or arbitrary native code.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct EntityAi {
+    #[serde(default)]
+    pub mode: EntityAiMode,
+    #[serde(default)]
+    pub goals: Vec<EntityGoal>,
+    #[serde(default)]
+    pub targets: Vec<EntityTarget>,
+}
+impl EntityAi {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.goals.len() > 24 {
+            return Err("AI supports at most 24 goals".into());
+        }
+        if self.targets.len() > 16 {
+            return Err("AI supports at most 16 target selectors".into());
+        }
+        let priority_ok = |p: i32| (0..=100).contains(&p);
+        for goal in &self.goals {
+            let (priority, valid) = match goal {
+                EntityGoal::Float { priority }
+                | EntityGoal::RandomLookAround { priority } => (*priority, true),
+                EntityGoal::MeleeAttack { priority, speed, interval, .. } =>
+                    (*priority, speed.is_finite() && *speed > 0.0 && *speed <= 8.0 && (1..=1200).contains(interval)),
+                EntityGoal::Stroll { priority, speed, .. } =>
+                    (*priority, speed.is_finite() && *speed > 0.0 && *speed <= 8.0),
+                EntityGoal::LookAtPlayer { priority, range, probability } =>
+                    (*priority, range.is_finite() && *range > 0.0 && *range <= 128.0 && probability.is_finite() && (0.0..=1.0).contains(probability)),
+            };
+            if !priority_ok(priority) || !valid {
+                return Err("AI goal has an invalid priority or option (priority 0..100, speed 0..8, range 0..128, probability 0..1, interval 1..1200)".into());
+            }
+        }
+        for target in &self.targets {
+            let (priority, interval_ok) = match target {
+                EntityTarget::HurtBy { priority, .. } => (*priority, true),
+                EntityTarget::NearestPlayer { priority, interval, .. } =>
+                    (*priority, (1..=1200).contains(interval)),
+            };
+            if !priority_ok(priority) || !interval_ok {
+                return Err("AI target selector has an invalid priority or interval (priority 0..100, interval 1..1200)".into());
+            }
+        }
+        Ok(())
+    }
+}
+
 /// An entity type added by a content mod. Projectiles are thrown by an item;
 /// living types reuse a vanilla mob's behaviour, geometry and renderer.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -320,6 +433,9 @@ pub struct EntityType {
     /// Optional vanilla attribute overrides for living entities.
     #[serde(default)]
     pub attributes: BTreeMap<String, f64>,
+    /// Optional declarative AI overrides/additions for living entities.
+    #[serde(default)]
+    pub ai: Option<EntityAi>,
 }
 
 /// a menu type the mod adds (vanilla's `MenuType`, NeoForge's
@@ -677,6 +793,9 @@ impl Content {
                     if !file.attributes.is_empty() {
                         return Err(format!("{name}: projectile entity types cannot set living attributes"));
                     }
+                    if file.ai.is_some() {
+                        return Err(format!("{name}: projectile entity types cannot define living AI"));
+                    }
                     if !(file.damage.is_finite() && file.damage >= 0.0) {
                         return Err(format!("{name}: damage is 0 or more"));
                     }
@@ -702,6 +821,9 @@ impl Content {
                             return Err(format!("{name}: attribute {attribute} must be finite and {}",
                                 if attribute == "minecraft:max_health" { "greater than zero" } else { "zero or more" }));
                         }
+                    }
+                    if let Some(ai) = &file.ai {
+                        ai.validate().map_err(|error| format!("{name}: {error}"))?;
                     }
                 }
             }
