@@ -196,7 +196,7 @@ pub struct Catalog {
     pub bundled_enabled: std::collections::BTreeSet<String>,
     pub sections: [bool; 3],
     pub pending_delete: Option<LocalItem>,
-    downloaded: Vec<(browser::SourceId, String)>,
+    downloaded: Vec<(browser::SourceId, String, String)>, 
     downloading: Option<(browser::SourceId, String)>,
     progress: Arc<Mutex<f32>>,
     failed: Option<(browser::SourceId, String)>,
@@ -278,7 +278,7 @@ impl Catalog {
             .entries
             .iter()
             .filter(|e| game.join(&e.file).is_file())
-            .map(|e| (e.source, e.project.clone()))
+            .map(|e| (e.source, e.project.clone(), e.version.clone()))
             .collect();
         let on = horizon_client::mod_list::ModList::load(&game);
         self.bundled_enabled = on.enabled.difference(&on.disabled).cloned().collect();
@@ -338,8 +338,19 @@ impl Catalog {
         }
         None
     }
+    pub fn installed_version(&self, project: &Project) -> Option<&str> {
+        self.downloaded.iter()
+            .find(|(source, id, _)| *source == project.source && *id == project.id)
+            .map(|(_, _, version)| version.as_str())
+    }
+    pub fn latest_version(project: &Project) -> Option<&str> {
+        project.summary.lines()
+            .find_map(|line| line.trim().strip_prefix("Latest version:"))
+            .map(str::trim)
+            .filter(|version| !version.is_empty())
+    }
     pub fn is_installed(&self, project: &Project) -> bool {
-        self.downloaded.iter().any(|(source, id)| *source == project.source && *id == project.id)
+        self.installed_version(project).is_some()
             || (project.kind == Kind::Mod && self.local.iter().any(|item| {
                 item.kind == horizon_client::content_files::Kind::Mods
                     && item.file == format!("{}.hmod", project.id)
@@ -352,6 +363,8 @@ impl Catalog {
             .is_some_and(|(source, id)| *source == project.source && *id == project.id)
         {
             "Retry"
+        } else if let Some(installed) = self.installed_version(project) {
+            if Self::latest_version(project) == Some(installed) { "Installed" } else { "Update" }
         } else if self.is_installed(project) {
             "Update"
         } else {
@@ -520,6 +533,13 @@ impl Catalog {
             return;
         }
         if self.busy() || self.download_label(&project).is_some() {
+            return;
+        }
+        if self.installed_version(&project).is_some_and(|installed| {
+            Self::latest_version(&project) == Some(installed)
+        }) {
+            self.status = format!("{} {} is already up to date.", project.title,
+                Self::latest_version(&project).unwrap_or(""));
             return;
         }
         let game = self.config.game_home(home);
