@@ -162,7 +162,7 @@ fn parse_minecraftmod_catalog(text: &str, local: bool) -> Result<Index, String> 
         let latest_version = latest.and_then(|v| v["version"].as_str()).unwrap_or("unknown");
         let latest_changelog = latest.and_then(|v| v["changelog"].as_str()).unwrap_or("No changelog provided.");
         let card_summary = format!(
-            "[category:{category}] {}{}",
+            "[category:{category}] {}{}\n\nLatest version: {latest_version}\n\nChangelog:\n{latest_changelog}",
             if experimental { "[EXPERIMENTAL] " } else { "" },
             description
         );
