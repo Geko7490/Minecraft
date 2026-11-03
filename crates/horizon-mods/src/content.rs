@@ -260,7 +260,7 @@ pub const ENTITY_TEMPLATES: [&str; 1] = ["minecraft:snowball"];
 
 /// Vanilla living mob templates whose existing AI, model and animation
 /// implementation can be safely reused by a mod-defined entity type.
-pub const LIVING_ENTITY_TEMPLATES: [&str; 10] = [
+pub const LIVING_ENTITY_TEMPLATES: [&str; 11] = [
     "minecraft:zombie",
     "minecraft:skeleton",
     "minecraft:cow",
@@ -271,6 +271,7 @@ pub const LIVING_ENTITY_TEMPLATES: [&str; 10] = [
     "minecraft:creeper",
     "minecraft:wolf",
     "minecraft:iron_golem",
+    "minecraft:vex",
 ];
 
 /// The runtime archetype a mod-defined entity type copies.
@@ -1216,6 +1217,27 @@ capabilities = ["registries"]
         assert_eq!(mob.item, None);
         assert_eq!(mob.attributes["minecraft:max_health"], 40.0);
         assert_eq!(mob.attributes["minecraft:movement_speed"], 0.31);
+
+        // Vex is a fully implemented flying archetype (custom move control,
+        // charge attack, owner/nearest-player targeting and native animation).
+        let vex_files: &[(&str, &[u8])] = &[(
+            "data/ruby/horizon/entity_type/wisp.json",
+            br#"{
+                "kind": "living",
+                "template": "minecraft:vex",
+                "attributes": {
+                    "minecraft:max_health": 24.0,
+                    "minecraft:attack_damage": 6.0,
+                    "minecraft:flying_speed": 0.6
+                }
+            }"#,
+        )];
+        let vex_content = hmod("living-vex", MANIFEST_TEXT, vex_files).unwrap();
+        let wisp = &vex_content.entity_types[0];
+        assert_eq!(wisp.id, "ruby:wisp");
+        assert_eq!(wisp.template, "minecraft:vex");
+        assert_eq!(wisp.kind, EntityKind::Living);
+        assert_eq!(wisp.attributes["minecraft:flying_speed"], 0.6);
 
         for (case, file, why) in [
             (
