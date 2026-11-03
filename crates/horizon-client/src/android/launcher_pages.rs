@@ -632,7 +632,7 @@ impl Launcher {
                 let summary = ui.fit_text(Face::Regular, 14.0, &card_summary, w - if page == Page::Mods { 350.0 } else { 214.0 });
                 ui.text(Face::Medium, 19.0, 32.0, y, color::TEXT, &title);
                 ui.text(Face::Regular, 14.0, 32.0, y + 29.0, color::MUTED, &summary);
-                if page == Page::Mods && p.summary.contains("[EXPERIMENTAL]") {
+                if page == Page::Mods && (p.summary.contains("[EXPERIMENTAL]") || p.summary.contains("[category:experimental]")) {
                     ui.text(Face::Medium, 11.0, 32.0, y + 51.0, color::ACCENT, "EXPERIMENTAL");
                     button(&mut ui, &mut self.targets, [w - 280.0, y, 118.0, 42.0], "Details", Action::ModDetails(i), false);
                 } else if page == Page::Mods {
@@ -687,26 +687,46 @@ impl Launcher {
                         ui.rounded(20.0, 286.0, w - 40.0, h - 410.0, 6.0, color::RAISED);
                         ui.text(Face::Medium, 22.0, 36.0, 302.0, color::TEXT, &project.title);
                         ui.text(Face::Regular, 13.0, 36.0, 332.0, color::MUTED, &format!("By {}  •  Minecraft {}", project.author, project.game_versions.join(", ")));
-                        for (line, value) in project.summary.lines().enumerate().take(8) {
-                            let clean = value.replace("[category:items] ", "").replace("[category:experimental] ", "").replace("[EXPERIMENTAL] ", "");
+                        let max_chars = ((w - 80.0) / 7.5).max(20.0) as usize;
+                        let max_lines = ((h - 490.0) / 25.0).clamp(3.0, 10.0) as usize;
+                        let mut detail_lines: Vec<(String, bool)> = Vec::new();
+                        for value in project.summary.lines() {
+                            let clean = value.replace("[category:items] ", "")
+                                .replace("[category:experimental] ", "")
+                                .replace("[EXPERIMENTAL] ", "");
                             let metadata = clean.starts_with("Latest version:")
                                 || clean.starts_with("Published:")
                                 || clean == "Changelog:";
-                            let clean = ui.fit_text(Face::Regular, 14.0, &clean, w - 80.0);
+                            let mut current = String::new();
+                            for word in clean.split_whitespace() {
+                                if !current.is_empty() && current.len() + word.len() + 1 > max_chars {
+                                    detail_lines.push((current, metadata));
+                                    current = String::new();
+                                }
+                                if !current.is_empty() { current.push(' '); }
+                                current.push_str(word);
+                            }
+                            if !current.is_empty() { detail_lines.push((current, metadata)); }
+                            if detail_lines.len() >= max_lines { break; }
+                        }
+                        for (line, (value, metadata)) in detail_lines.into_iter().take(max_lines).enumerate() {
+                            let value = ui.fit_text(Face::Regular, 14.0, &value, w - 80.0);
                             ui.text(
                                 Face::Regular,
                                 14.0,
                                 36.0,
                                 360.0 + line as f32 * 25.0,
                                 if metadata { color::ACCENT } else { color::TEXT },
-                                &clean,
+                                &value,
                             );
                         }
                     }
                 }
                 button(&mut ui, &mut self.targets, [32.0, h - 100.0, 120.0, 40.0], "Back", Action::CloseModDetails, false);
                 if let Some(index) = self.catalog.selected_mod {
-                    button(&mut ui, &mut self.targets, [w - 150.0, h - 100.0, 118.0, 40.0], self.catalog.install_button(project), Action::Install(index), true);
+                    if let Some(project) = self.catalog.results.get(index) {
+                        button(&mut ui, &mut self.targets, [w - 150.0, h - 100.0, 118.0, 40.0], self.catalog.install_button(project), Action::Install(index), true);
+                    }
                 }
             }
             if page != Page::Mods || self.catalog.selected_mod.is_none() {
