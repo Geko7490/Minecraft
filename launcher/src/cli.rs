@@ -689,7 +689,7 @@ impl SourceArg {
             SourceArg::Curseforge => SourceId::CurseForge,
             SourceArg::Horizon => SourceId::Horizon,
         };
-        browser::source(id).ok_or_else(|| browser::CURSEFORGE_SOON.into())
+        browser::source(id).ok_or_else(|| browser::CURSEFORGE_KEY_NEEDED.into())
     }
 }
 

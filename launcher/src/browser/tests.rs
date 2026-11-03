@@ -1,4 +1,4 @@
-use super::*;
+use crate::browser::*;
 use serde_json::json;
 use sha2::Digest;
 
