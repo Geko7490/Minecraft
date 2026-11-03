@@ -1,0 +1,34 @@
+name: Living Entity API tests
+
+on:
+  pull_request:
+    branches: [feature/mod-center-foundation]
+    paths:
+      - "crates/horizon-mods/**"
+      - "crates/horizon-client/src/mobs/**"
+      - "crates/horizon-client/src/mobs.rs"
+      - "docs/mods.md"
+      - ".github/workflows/living-entity-api-tests.yml"
+  push:
+    branches: [feature/vex-living-archetype]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: living-entity-api-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  content-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run HMOD content and EntityType tests
+        run: cargo test -p horizon-mods content::tests::living_entity_types_reuse_a_vanilla_archetype_and_patch_attributes
+      - name: Compile client mob registry and runtime
+        run: cargo check -p horizon-client --no-default-features
+      - name: Check patch formatting
+        run: git diff --check

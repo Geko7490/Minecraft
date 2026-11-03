@@ -348,11 +348,14 @@ impl Game<'_> {
 fn register_entity_types(mods: &[horizon_client::mod_content::ContentMod]) {
     use horizon_client::projectiles;
     let types = horizon_client::mod_content::entity_types(mods);
-    let set = projectiles::register_thrown_types(
-        types
-            .iter()
-            .map(|t| (t.id.clone(), t.item.clone(), t.damage)),
-    );
+    let set = projectiles::register_thrown_types(types.iter().filter_map(|t| {
+        if t.kind != horizon_mods::content::EntityKind::Projectile {
+            return None;
+        }
+        t.item
+            .as_ref()
+            .map(|item| (t.id.clone(), item.clone(), t.damage))
+    }));
     if !set
         && projectiles::thrown_types()
             .iter()

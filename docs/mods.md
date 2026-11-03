@@ -200,8 +200,9 @@ impact, is drawn as the item's model and can also be created with `/summon <id>:
 
 **Living entity archetype:** set `kind` to `living`. The current supported templates are
 `minecraft:zombie`, `minecraft:skeleton`, `minecraft:cow`, `minecraft:pig`, `minecraft:sheep`,
-`minecraft:chicken`, `minecraft:spider`, `minecraft:creeper`, `minecraft:wolf` and
-`minecraft:iron_golem`. A living entity reuses that template's implemented AI goals, movement/physics,
+`minecraft:chicken`, `minecraft:spider`, `minecraft:creeper`, `minecraft:wolf`,
+`minecraft:iron_golem` and `minecraft:vex`. Vex reuses Horizon's implemented flying movement,
+charge/melee attack, owner/nearest-player targeting, model, animation and sounds. A living entity reuses that template's implemented AI goals, movement/physics,
 model, animation, sounds and spawn category under the mod's own entity id. It can override these attributes:
 `minecraft:max_health`, `minecraft:movement_speed`, `minecraft:attack_damage`, `minecraft:armor`,
 `minecraft:armor_toughness`, `minecraft:knockback_resistance`, `minecraft:follow_range`,
