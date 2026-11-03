@@ -625,7 +625,7 @@ impl Launcher {
                     continue;
                 }
                 let title = ui.fit_text(Face::Medium, 19.0, &p.title, w - if page == Page::Mods { 350.0 } else { 214.0 });
-                let card_summary = p.summary.split("\\n\\n").next().unwrap_or(&p.summary)
+                let card_summary = p.summary.split("\n\n").next().unwrap_or(&p.summary)
                     .replace("[category:items] ", "")
                     .replace("[category:experimental] ", "")
                     .replace("[EXPERIMENTAL] ", "");
