@@ -1285,13 +1285,21 @@ impl Launcher {
             ],
             |([x, y, w, h], _)| [x + w / 2.0, y + h / 2.0],
         );
-        let action = self
-            .targets
-            .iter()
-            .find(|([x, y, w, h], _)| {
+        let detail_index = if self.catalog.page == Page::Mods {
+            self.catalog.selected_mod
+        } else {
+            None
+        };
+        let action = match detail_index {
+            Some(selected) => self.targets.iter().find(|([x, y, w, h], action)| {
+                (*x..*x + *w).contains(&p[0])
+                    && (*y..*y + *h).contains(&p[1])
+                    && (*action == Action::CloseModDetails || *action == Action::Install(selected))
+            }).map(|(_, action)| *action),
+            None => self.targets.iter().find(|([x, y, w, h], _)| {
                 (*x..*x + *w).contains(&p[0]) && (*y..*y + *h).contains(&p[1])
-            })
-            .map(|(_, a)| *a);
+            }).map(|(_, action)| *action),
+        };
         if self.catalog.busy() || crate::documents::busy() {
             return Ok(());
         }
