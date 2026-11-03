@@ -348,16 +348,20 @@ impl Game<'_> {
 fn register_entity_types(mods: &[horizon_client::mod_content::ContentMod]) {
     use horizon_client::projectiles;
     let types = horizon_client::mod_content::entity_types(mods);
-    let set = projectiles::register_thrown_types(
-        types
-            .iter()
-            .map(|t| (t.id.clone(), t.item.clone(), t.damage)),
-    );
+    let projectile_types: Vec<_> = types
+        .iter()
+        .filter(|t| t.kind == horizon_mods::content::EntityKind::Projectile)
+        .collect();
+    let set = projectiles::register_thrown_types(projectile_types.iter().filter_map(|t| {
+        t.item
+            .as_ref()
+            .map(|item| (t.id.clone(), item.clone(), t.damage))
+    }));
     if !set
         && projectiles::thrown_types()
             .iter()
             .map(|t| t.id)
-            .ne(types.iter().map(|t| t.id.as_str()))
+            .ne(projectile_types.iter().map(|t| t.id.as_str()))
     {
         log::warn!("Horizon: the mods' entity types changed; restart the game to use them");
     }
