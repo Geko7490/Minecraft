@@ -863,15 +863,33 @@ fn install_version(
     if let Some(dir) = target.parent() {
         fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
-    fs::rename(&path, &target).map_err(|e| format!("{}: {e}", target.display()))?;
-    if let Some(old) = old
-        .as_ref()
-        .filter(|o| o.file != relative && !stays(native, &o.file))
-    {
-        let _ = fs::remove_file(home.join(&old.file));
+    // Keep the previous installed file recoverable until the new registry entry is durable.
+    let backup = if target.exists() && old.as_ref().is_some_and(|o| o.file == relative) {
+        let backup = target.with_file_name(format!(
+            ".{}.update-backup",
+            target.file_name().unwrap_or_default().to_string_lossy()
+        ));
+        if backup.exists() {
+            return Err(format!("A previous update backup already exists: {}", backup.display()));
+        }
+        fs::rename(&target, &backup)
+            .map_err(|e| format!("Could not preserve the installed version: {e}"))?;
+        Some(backup)
+    } else {
+        None
+    };
+    if let Err(error) = fs::rename(&path, &target) {
+        if let Some(backup) = &backup {
+            let _ = fs::rename(backup, &target);
+        }
+        return Err(format!("{}: {error}", target.display()));
     }
     if project.kind == Kind::Mod {
-        java::set_enabled(home, &p.id, true)?;
+        if let Err(error) = java::set_enabled(home, &p.id, true) {
+            let _ = fs::remove_file(&target);
+            if let Some(backup) = &backup { let _ = fs::rename(backup, &target); }
+            return Err(error);
+        }
     }
     let entry = installed::Entry {
         source,
@@ -881,7 +899,7 @@ fn install_version(
         kind: project.kind,
         version: v.version.clone(),
         number: v.version.clone(),
-        file: relative,
+        file: relative.clone(),
         checksum: format!("SHA-256:{}", v.file.sha256),
         page: project.page.clone(),
         dependency: false,
@@ -891,7 +909,15 @@ fn install_version(
     };
     list.entries.retain(|e| !ours(e));
     list.entries.push(entry.clone());
-    list.save(home)?;
+    if let Err(error) = list.save(home) {
+        let _ = fs::remove_file(&target);
+        if let Some(backup) = &backup { let _ = fs::rename(backup, &target); }
+        return Err(error);
+    }
+    if let Some(backup) = backup { let _ = fs::remove_file(backup); }
+    if let Some(old) = old.as_ref().filter(|o| o.file != relative && !stays(native, &o.file)) {
+        let _ = fs::remove_file(home.join(&old.file));
+    }
     Ok(entry)
 }
 
