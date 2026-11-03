@@ -352,6 +352,8 @@ pub struct MobType {
     pub jump_strength: f64,
     /// Every default attribute value of the type (`entity-types.json`).
     pub attributes: Arc<HashMap<String, f64>>,
+    /// Optional content-mod AI configuration carried by the entity registry.
+    pub ai: Option<horizon_mods::content::EntityAi>,
     pub gravity: f64,
     pub safe_fall_distance: f64,
     pub fall_damage_multiplier: f64,
@@ -476,6 +478,7 @@ impl MobTypes {
                     knockback_resistance: attr("knockback_resistance").unwrap_or(0.0),
                     jump_strength: attr("jump_strength").unwrap_or(0.42),
                     attributes: Arc::new(defaults.clone()),
+                    ai: None,
                     gravity: attr("gravity").unwrap_or(0.08),
                     safe_fall_distance: attr("safe_fall_distance").unwrap_or(3.0),
                     fall_damage_multiplier: attr("fall_damage_multiplier").unwrap_or(1.0),
@@ -512,7 +515,7 @@ impl MobTypes {
         // Mod-defined living entity types carry a source archetype marker in
         // entity-types.json. Reuse that vanilla MobType so its species AI,
         // movement, renderer, model, animation and sounds stay coherent.
-        let custom: Vec<(String, String)> = types
+        let custom: Vec<(String, String, Option<Value>)> = types
             .as_object()
             .into_iter()
             .flat_map(|entries| entries.iter())
@@ -521,16 +524,23 @@ impl MobTypes {
                     return None;
                 }
                 let template = row.get("horizon:template")?.as_str()?;
-                Some((id.clone(), template.to_owned()))
+                Some((
+                    id.clone(),
+                    template.to_owned(),
+                    row.get("horizon:ai").cloned(),
+                ))
             })
             .collect();
-        for (id, template) in custom {
+        for (id, template, ai_value) in custom {
             let Some(mut mob) = out.get(&template).cloned() else {
                 continue;
             };
             let defaults = exact.get(&id).cloned().unwrap_or_default();
             let attr = |name: &str| defaults.get(&format!("minecraft:{name}")).copied();
             mob.id = id.clone();
+            mob.ai = ai_value
+                .map(serde_json::from_value)
+                .transpose()?;
             mob.max_health = attr("max_health").unwrap_or(mob.max_health as f64) as f32;
             mob.speed = attr("movement_speed").unwrap_or(mob.speed);
             mob.attack_damage = attr("attack_damage").unwrap_or(mob.attack_damage as f64) as f32;

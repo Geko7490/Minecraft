@@ -645,6 +645,12 @@ impl Plan<'_> {
                         attributes.insert(id.clone(), serde_json::Value::Number(n));
                     }
                 }
+                if let Some(ai) = &t.ai {
+                    object.insert(
+                        "horizon:ai".into(),
+                        serde_json::to_value(ai).map_err(|e| e.to_string())?,
+                    );
+                }
                 out.extend(serde_json::to_vec(&value).map_err(|e| e.to_string())?);
             } else {
                 // Preserve the vanilla row byte-for-byte for projectile types.
