@@ -272,18 +272,26 @@ pub fn minecraftmod_index() -> Result<Arc<Index>, String> {
 fn safe_etag(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 1024
-        && value.bytes().all(|byte| byte.is_ascii() && !byte.is_ascii_control())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii() && !byte.is_ascii_control())
 }
 
 fn read_etag(path: &Path) -> Option<String> {
-    fs::read_to_string(path).ok().map(|value| value.trim().to_owned())
+    fs::read_to_string(path)
+        .ok()
+        .map(|value| value.trim().to_owned())
         .filter(|value| safe_etag(value))
 }
 
 fn write_etag(path: &Path, etag: Option<&str>) {
     match etag.filter(|value| safe_etag(value)) {
-        Some(value) => { let _ = fs::write(path, value); }
-        None => { let _ = fs::remove_file(path); }
+        Some(value) => {
+            let _ = fs::write(path, value);
+        }
+        None => {
+            let _ = fs::remove_file(path);
+        }
     }
 }
 
@@ -294,13 +302,13 @@ fn fetch_remote_text(
     description: &str,
 ) -> Result<Option<(String, Option<String>)>, String> {
     use std::io::Read;
+
     let mut request = download::agent(at).get(at);
     if let Some(etag) = etag.filter(|value| safe_etag(value)) {
         request.set("If-None-Match", etag);
     }
     let response = match request.call() {
         Ok(response) => response,
-        Err(ureq::Error::Status(304, _)) => return Ok(None),
         Err(ureq::Error::Status(code, _)) => {
             return Err(format!("{description} answered {code}."));
         }
@@ -308,9 +316,23 @@ fn fetch_remote_text(
             return Err(format!("{description} can't be reached: {error}"));
         }
     };
-    let etag = response.header("ETag").filter(|value| safe_etag(value)).map(str::to_owned);
+    if response.status() == 304 {
+        return Ok(None);
+    }
+
+    let etag = response
+        .header("ETag")
+        .filter(|value| safe_etag(value))
+        .map(str::to_owned);
     let mut text = String::new();
-    response.into_reader().take(MAX_INDEX).read_to_string(&mut text).map_err(|e| e.to_string())?;
+    response
+        .into_reader()
+        .take(MAX_INDEX + 1)
+        .read_to_string(&mut text)
+        .map_err(|error| error.to_string())?;
+    if text.len() as u64 > MAX_INDEX {
+        return Err(format!("{description} is too large."));
+    }
     Ok(Some((text, etag)))
 }
 
@@ -323,12 +345,17 @@ fn fetch_minecraftmod_index(
         match fetch_remote_text(&at, etag, "MinecraftMod catalogue")? {
             Some((text, etag)) => (text, etag),
             None => (
-                cached.ok_or("MinecraftMod catalogue returned 304 without a cached catalogue")?.to_owned(),
+                cached
+                    .ok_or_else(|| "MinecraftMod catalogue returned 304 without a cached catalogue".to_owned())?
+                    .to_owned(),
                 etag.map(str::to_owned),
             ),
         }
     } else {
-        (fs::read_to_string(&at).map_err(|e| format!("{at}: {e}"))?, None)
+        (
+            fs::read_to_string(&at).map_err(|error| format!("{at}: {error}"))?,
+            None,
+        )
     };
     let index = parse_minecraftmod_catalog(&text, minecraftmod_local())?;
     Ok((index, text, etag))
@@ -343,12 +370,17 @@ fn fetch_index(
         match fetch_remote_text(&at, etag, "The mod registry")? {
             Some((text, etag)) => (text, etag),
             None => (
-                cached.ok_or("The mod registry returned 304 without a cached index")?.to_owned(),
+                cached
+                    .ok_or_else(|| "The mod registry returned 304 without a cached index".to_owned())?
+                    .to_owned(),
                 etag.map(str::to_owned),
             ),
         }
     } else {
-        (fs::read_to_string(&at).map_err(|e| format!("{at}: {e}"))?, None)
+        (
+            fs::read_to_string(&at).map_err(|error| format!("{at}: {error}"))?,
+            None,
+        )
     };
     let index = match local() {
         true => Index::parse_local(&text)?,

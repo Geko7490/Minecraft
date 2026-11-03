@@ -402,7 +402,8 @@ fn catalog_fetch_keeps_the_response_etag_with_its_body() {
             b"HTTP/1.1 200 OK\r\nETag: \"catalog-v2\"\r\nContent-Length: 8\r\nConnection: close\r\n\r\n",
         )
         .unwrap();
-        stream.write_all(br#"{\"ok\":1}"#).unwrap();
+        stream.write_all(br#"{"ok":1}"#).unwrap();
+
     });
     let url = format!("http://{address}/index.json");
     let response = fetch_remote_text(&url, None, "test catalogue").unwrap().unwrap();

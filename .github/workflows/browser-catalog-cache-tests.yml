@@ -1,0 +1,28 @@
+name: Browser catalogue cache tests
+
+on:
+  push:
+    branches: [android, "codex/**"]
+  pull_request:
+    branches: [android]
+    paths:
+      - "launcher/src/browser/horizon.rs"
+      - "launcher/src/browser/horizon/**"
+      - ".github/workflows/browser-catalog-cache-tests.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser-catalog-cache-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  launcher-cache:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run catalogue cache tests
+        run: cargo test --manifest-path launcher/Cargo.toml browser::horizon::tests::catalog_
