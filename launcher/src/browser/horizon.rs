@@ -85,6 +85,8 @@ fn parse_minecraftmod_catalog(text: &str, local: bool) -> Result<Index, String> 
         }
         let name = item["name"].as_str().ok_or("catalogue mod has no name")?;
         let description = item["description"].as_str().unwrap_or_default();
+        let category = item["category"].as_str().unwrap_or("other");
+        let experimental = category == "experimental";
         let developer = item["developer"].as_str().ok_or("catalogue mod has no developer")?;
         let source = item["source"].as_str().ok_or("catalogue mod has no source")?;
         let license = item["license"].as_str().ok_or("catalogue mod has no license")?;
@@ -156,9 +158,20 @@ fn parse_minecraftmod_catalog(text: &str, local: bool) -> Result<Index, String> 
         if versions.is_empty() {
             continue;
         }
+        let latest = entries.first();
+        let latest_version = latest.and_then(|v| v["version"].as_str()).unwrap_or("unknown");
+        let latest_changelog = latest.and_then(|v| v["changelog"].as_str()).unwrap_or("No changelog provided.");
+        let card_summary = format!(
+            "[category:{category}] {}{}",
+            if experimental { "[EXPERIMENTAL] " } else { "" },
+            description
+        );
+        let detail_description = format!(
+            "{description}\n\nLatest version: {latest_version}\n\nChangelog:\n{latest_changelog}"
+        );
         projects.push(json!({
-            "id": id, "kind": "mod", "name": name, "summary": description,
-            "description": description, "authors": [developer], "owners": [],
+            "id": id, "kind": "mod", "name": name, "summary": card_summary,
+            "description": detail_description, "authors": [developer], "owners": [],
             "license": license, "source": source,
             "icon": item.get("icon").cloned().unwrap_or(Value::Null),
             "key": null, "versions": versions, "downloads": 0
