@@ -2,7 +2,7 @@ name: Living Entity API tests
 
 on:
   pull_request:
-    branches: [feature/mod-center-foundation]
+    branches: [feature/mod-center-foundation, feature/vex-living-archetype]
     paths:
       - "crates/horizon-mods/**"
       - "crates/horizon-client/src/mobs/**"
