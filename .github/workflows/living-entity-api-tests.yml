@@ -22,11 +22,13 @@ concurrency:
 jobs:
   content-api:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Run HMOD content and EntityType tests
         run: cargo test -p horizon-mods content::tests::living_entity_types_reuse_a_vanilla_archetype_and_patch_attributes
+      - name: Compile client mob registry and runtime
+        run: cargo check -p horizon-client --no-default-features
       - name: Check patch formatting
         run: git diff --check
