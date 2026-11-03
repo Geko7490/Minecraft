@@ -1396,6 +1396,47 @@ capabilities = ["registries"]
     }
 
     #[test]
+    fn living_entity_ai_accepts_safe_goal_and_target_declarations() {
+        let files: &[(&str, &[u8])] = &[(
+            "data/ruby/horizon/entity_type/guard.json",
+            br#"{
+                "kind": "living",
+                "template": "minecraft:zombie",
+                "ai": {
+                    "mode": "replace",
+                    "goals": [
+                        {"type": "float", "priority": 0},
+                        {"type": "melee_attack", "priority": 2, "speed": 1.2, "follow_unseen": true, "interval": 16},
+                        {"type": "stroll", "priority": 5, "speed": 0.8, "avoid_water": true},
+                        {"type": "look_at_player", "priority": 6, "range": 12.0, "probability": 0.1},
+                        {"type": "random_look_around", "priority": 7}
+                    ],
+                    "targets": [
+                        {"type": "hurt_by", "priority": 1, "alert": true},
+                        {"type": "nearest_player", "priority": 2, "must_see": false, "interval": 8}
+                    ]
+                }
+            }"#,
+        )];
+        let content = hmod("living-ai", MANIFEST_TEXT, files).unwrap();
+        let ai = content.entity_types[0].ai.as_ref().unwrap();
+        assert_eq!(ai.mode, EntityAiMode::Replace);
+        assert_eq!(ai.goals.len(), 5);
+        assert_eq!(ai.targets.len(), 2);
+
+        for invalid in [
+            r#"{"kind":"living","template":"minecraft:zombie","ai":{"goals":[{"type":"melee_attack","priority":2,"speed":99.0}]}}"#,
+            r#"{"kind":"living","template":"minecraft:zombie","ai":{"targets":[{"type":"nearest_player","priority":2,"interval":0}]}}"#,
+            r#"{"kind":"living","template":"minecraft:zombie","ai":{"goals":[{"type":"execute_script","priority":0}]}}"#,
+            r#"{"kind":"projectile","template":"minecraft:snowball","item":"ruby:gem","ai":{"goals":[]}}"#,
+        ] {
+            let files: &[(&str, &[u8])] =
+                &[("data/ruby/horizon/entity_type/invalid.json", invalid.as_bytes())];
+            assert!(hmod("invalid-ai", MANIFEST_TEXT, files).is_err(), "{invalid}");
+        }
+    }
+
+    #[test]
     fn block_items_patch_their_components() {
         let block = br#"{"template": "minecraft:iron_block", "components": {
             "minecraft:max_stack_size": 16, "!minecraft:lore": {}}}"#;
