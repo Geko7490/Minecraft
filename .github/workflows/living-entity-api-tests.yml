@@ -7,10 +7,12 @@ on:
       - "crates/horizon-mods/**"
       - "crates/horizon-client/src/mobs/**"
       - "crates/horizon-client/src/mobs.rs"
+      - "crates/horizon-client/src/mod_content.rs"
+      - "crates/horizon-client/src/game/mods.rs"
       - "docs/mods.md"
       - ".github/workflows/living-entity-api-tests.yml"
   push:
-    branches: [feature/vex-living-archetype]
+    branches: [android, "codex/**"]
 
 permissions:
   contents: read
