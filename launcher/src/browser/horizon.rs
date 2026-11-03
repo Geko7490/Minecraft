@@ -160,14 +160,15 @@ fn parse_minecraftmod_catalog(text: &str, local: bool) -> Result<Index, String> 
         }
         let latest = entries.first();
         let latest_version = latest.and_then(|v| v["version"].as_str()).unwrap_or("unknown");
+        let latest_published = latest.and_then(|v| v["published"].as_str()).unwrap_or("Unknown");
         let latest_changelog = latest.and_then(|v| v["changelog"].as_str()).unwrap_or("No changelog provided.");
         let card_summary = format!(
-            "[category:{category}] {}{}\n\nLatest version: {latest_version}\n\nChangelog:\n{latest_changelog}",
+            "[category:{category}] {}{}\n\nLatest version: {latest_version}\nPublished: {latest_published}\n\nChangelog:\n{latest_changelog}",
             if experimental { "[EXPERIMENTAL] " } else { "" },
             description
         );
         let detail_description = format!(
-            "{description}\n\nLatest version: {latest_version}\n\nChangelog:\n{latest_changelog}"
+            "{description}\n\nLatest version: {latest_version}\nPublished: {latest_published}\n\nChangelog:\n{latest_changelog}"
         );
         projects.push(json!({
             "id": id, "kind": "mod", "name": name, "summary": card_summary,
