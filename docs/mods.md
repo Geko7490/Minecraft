@@ -221,9 +221,41 @@ model, animation, sounds and spawn category under the mod's own entity id. It ca
 ```
 
 A living type has no spawn item yet; use `/summon <id>:<name>`. Its display name comes from
-`entity.<id>.<name>` in the mod's language assets. This is a **vanilla-archetype API**, not arbitrary custom AI:
-mods cannot yet add new goal classes, target selectors, pathfinding algorithms, tick/event callbacks, custom
-model rigs or animation controllers. The entity uses the behaviour and visuals of its selected vanilla template.
+`entity.<id>.<name>` in the mod's language assets.
+
+**Declarative AI:** a living type may optionally define `ai`. `mode` is `extend` (the default, add to
+the template's selectors) or `replace` (replace its goal and target selector lists). This is a bounded,
+data-only API; HMODs cannot run scripts or arbitrary Rust code.
+
+```json
+{
+  "kind": "living",
+  "template": "minecraft:zombie",
+  "ai": {
+    "mode": "replace",
+    "goals": [
+      {"type": "float", "priority": 0},
+      {"type": "melee_attack", "priority": 2, "speed": 1.1, "follow_unseen": true, "interval": 16},
+      {"type": "stroll", "priority": 5, "speed": 0.85, "avoid_water": true},
+      {"type": "look_at_player", "priority": 6, "range": 12.0, "probability": 0.05},
+      {"type": "random_look_around", "priority": 7}
+    ],
+    "targets": [
+      {"type": "hurt_by", "priority": 1, "alert": true},
+      {"type": "nearest_player", "priority": 2, "must_see": false, "interval": 8}
+    ]
+  }
+}
+```
+
+Supported goals: `float`, `melee_attack`, `stroll`, `look_at_player` and `random_look_around`.
+Supported target selectors: `hurt_by` (optional `alert`) and `nearest_player` (optional `must_see` and
+`interval`). Priorities are 0–100; speeds are greater than 0 and at most 8; look range is greater than 0 and at
+most 128; probability is 0–1; intervals are 1–1200. Melee attack and stroll use Horizon's native navigation and
+pathfinding. Template movement controls, physics and species tick hooks remain active.
+
+Custom goal classes, custom pathfinding algorithms, tick/event callbacks, custom model rigs and animation
+controllers are not supported yet. The model, texture and animation still come from the selected vanilla template.
 The entity registry and mob runtime both need the same mod enabled; test multiplayer with matching client/server mods.
 
 #### Menu types
