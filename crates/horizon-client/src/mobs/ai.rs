@@ -382,6 +382,76 @@ pub fn register(m: &mut Mob) {
         Family::Panda => super::panda::register(m),
         Family::PolarBear => super::polar_bear::register(m),
     }
+    // Content mods may extend or replace the template's selectors with a
+    // bounded, data-only subset of native goals. No mod-supplied code is run.
+    if let Some(config) = m.kind.ai.clone() {
+        use horizon_mods::content::{EntityAiMode, EntityGoal, EntityTarget};
+        use super::goals::{
+            Float, HurtByTarget, LookAtPlayer, MeleeAttack, NearestTarget,
+            RandomLookAround, Stroll,
+        };
+        if config.mode == EntityAiMode::Replace {
+            m.ai.goals.clear();
+            m.ai.targets.clear();
+        }
+        for goal in config.goals {
+            match goal {
+                EntityGoal::Float { priority } => m.ai.goals.add(priority, Float),
+                EntityGoal::MeleeAttack {
+                    priority,
+                    speed,
+                    follow_unseen,
+                    interval,
+                } => m.ai.goals.add(
+                    priority,
+                    MeleeAttack::new(speed, follow_unseen).interval(interval),
+                ),
+                EntityGoal::Stroll {
+                    priority,
+                    speed,
+                    avoid_water,
+                } => {
+                    let goal = if avoid_water {
+                        Stroll::avoiding_water(speed)
+                    } else {
+                        Stroll::new(speed)
+                    };
+                    m.ai.goals.add(priority, goal);
+                }
+                EntityGoal::LookAtPlayer {
+                    priority,
+                    range,
+                    probability,
+                } => m
+                    .ai
+                    .goals
+                    .add(priority, LookAtPlayer::new(range).probability(probability)),
+                EntityGoal::RandomLookAround { priority } => {
+                    m.ai.goals.add(priority, RandomLookAround::default())
+                }
+            }
+        }
+        for target in config.targets {
+            match target {
+                EntityTarget::HurtBy { priority, alert } => {
+                    let goal = if alert {
+                        HurtByTarget::new().alert()
+                    } else {
+                        HurtByTarget::new()
+                    };
+                    m.ai.targets.add(priority, goal);
+                }
+                EntityTarget::NearestPlayer {
+                    priority,
+                    must_see,
+                    interval,
+                } => m
+                    .ai
+                    .targets
+                    .add(priority, NearestTarget::player(must_see).interval(interval)),
+            }
+        }
+    }
     // FloatGoal's constructor lets the navigation float, as do the
     // constructors of these brain-driven and flying mobs. A floater rises
     // 0.04 a tick in Mob.jumpInLiquid, the others 0.3 (the bounce of #542).
