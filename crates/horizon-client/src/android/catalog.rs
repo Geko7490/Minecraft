@@ -203,6 +203,8 @@ pub struct Catalog {
     pub page: Page,
     pub query: String,
     pub results: Vec<Project>,
+    pub mod_filter: usize,
+    pub selected_mod: Option<usize>,
     pub status: String,
     pub offset: usize,
     pub scroll: f32,
@@ -237,6 +239,8 @@ impl Catalog {
             page: Page::Play,
             query: String::new(),
             results: vec![],
+            mod_filter: 0,
+            selected_mod: None,
             status: String::new(),
             offset: 0,
             scroll: 0.0,
@@ -332,19 +336,14 @@ impl Catalog {
                 *self.progress.lock().unwrap_or_else(|e| e.into_inner()) * 100.0
             ));
         }
-        if self
-            .downloaded
-            .iter()
-            .any(|(source, id)| *source == project.source && *id == project.id)
-            || (project.kind == Kind::Mod
-                && self.local.iter().any(|item| {
-                    item.kind == horizon_client::content_files::Kind::Mods
-                        && item.file == format!("{}.hmod", project.id)
-                }))
-        {
-            return Some("Installed".into());
-        }
         None
+    }
+    pub fn is_installed(&self, project: &Project) -> bool {
+        self.downloaded.iter().any(|(source, id)| *source == project.source && *id == project.id)
+            || (project.kind == Kind::Mod && self.local.iter().any(|item| {
+                item.kind == horizon_client::content_files::Kind::Mods
+                    && item.file == format!("{}.hmod", project.id)
+            }))
     }
     pub fn install_button(&self, project: &Project) -> &'static str {
         if self
@@ -353,6 +352,8 @@ impl Catalog {
             .is_some_and(|(source, id)| *source == project.source && *id == project.id)
         {
             "Retry"
+        } else if self.is_installed(project) {
+            "Update"
         } else {
             "Install"
         }
