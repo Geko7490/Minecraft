@@ -893,9 +893,7 @@ impl Launcher {
         }
         let header = page_header(
             "Mods",
-            "Mods and shader packs made for Horizon from its own reviewed registry, and \
-             resource packs from Modrinth. Each file is checked against its source's checksum \
-             before it reaches your game folder.",
+            "Mods from MinecraftMod, Horizon shader packs and Modrinth resource packs. Downloads are verified before installation.",
             &t,
         );
         let this = cx.entity().downgrade();
@@ -950,7 +948,7 @@ impl Launcher {
                     }),
                 )
             });
-        let source_bar = (self.mods.kind != PackKind::Shader && !java).then(|| {
+        let source_bar = (self.mods.kind != PackKind::Shader && self.mods.kind != PackKind::Mod && !java).then(|| {
             div()
                 .flex()
                 .flex_wrap()
@@ -960,7 +958,7 @@ impl Launcher {
                 .children(change_key_btn)
         });
         // The registry lists only what was made for Horizon: no "everything", no Modrinth filters.
-        let registry = self.mods.source == SourceId::Horizon && !java;
+        let registry = matches!(self.mods.source, SourceId::Horizon | SourceId::MinecraftMod) && !java;
         let filters = (!registry).then(|| self.mods_filters(cx));
         let search_btn = button("mods-search-action", "Search", Kind::Secondary, &t).on_click(
             cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -1728,7 +1726,7 @@ impl Launcher {
             let source_color = match p.source {
                 SourceId::Modrinth => t.accent,
                 SourceId::CurseForge => t.warn,
-                SourceId::Horizon => t.success,
+                SourceId::Horizon | SourceId::MinecraftMod => t.success,
             };
             let mut right = div()
                 .flex()
@@ -1864,6 +1862,7 @@ impl Launcher {
 /// Where a kind's tab searches first: Horizon's registry for shaders, Modrinth for others.
 fn source_for(kind: PackKind) -> SourceId {
     match kind {
+        PackKind::Mod => SourceId::MinecraftMod,
         PackKind::Shader => SourceId::Horizon,
         _ => SourceId::Modrinth,
     }

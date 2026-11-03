@@ -5,7 +5,7 @@
 //! registry mod, turned on or off as the pack says. The pack's overrides (settings, resource
 //! packs, a mod's saved settings) are copied in once, when it is installed.
 use super::{fetch, index, install_version, local, newest, Index};
-use crate::browser::{java, FileRef};
+use crate::browser::{java, FileRef, SourceId};
 use horizon_mods::{index as idx, modpack::Modpack};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -133,7 +133,7 @@ fn install_version_in(
                 p.name, m.id, m.version
             ));
         };
-        install_version(index, local, mp, mv, &home, progress)?;
+        install_version(index, local, mp, mv, SourceId::Horizon, &home, progress)?;
         java::set_enabled(&home, &m.id, m.on)?;
         mods.push(format!("{} {}", m.id, m.version));
     }

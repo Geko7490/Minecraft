@@ -1,19 +1,19 @@
 # The launcher's mod browser
 
-Search Modrinth (CurseForge support is coming soon) for Java mods, modpacks, resource packs and data packs, and Horizon's
-registry for Horizon's own mods, modpacks, resource packs and shader packs; see how well each one runs before installing it, and install it with its checksum checked. This is item 16 of the roadmap and issue #577. The code is in
+Search MinecraftMod for Horizon .hmod content mods; Modrinth and, when configured, CurseForge remain available for Java-mod browsing and packs, while Horizon's
+legacy registry continues to serve native shader packs; see how well each one runs before installing it, and install it with its checksum checked. This is item 16 of the roadmap and issue #577. The code is in
 `launcher/src/browser.rs` and `launcher/src/browser/`.
 
 ## What it offers
 
 Horizon doesn't run Java code ([mods.md](mods.md)). It ports what a Java mod
 carries as data (blocks, items, recipes, loot tables, tags, worldgen, textures, names) with `horizon-port-pack`, and
-says before install which of the mod's features that leaves out. Horizon's own mods (content mods, `.hmod`, and native
-mods, `.hnmod`) aren't on Modrinth or CurseForge yet (Modrinth has no `horizon` loader).
+says before install which of the mod's features that leaves out. Horizon Android content mods (`.hmod`) are listed in the separate [MinecraftMod catalogue](https://github.com/Geko7490/MinecraftMod). Native `.hnmod` packages are not installable on Android.
 
 | Kind | Goes to | How well it runs |
 |---|---|---|
-| Java mods (Fabric, NeoForge, Forge, Quilt) | ported into `horizon-mods/<mod id>/` and turned on | Checked from its jar before install: **Works**, **Partly** or **Doesn't run** ([below](#java-mods)) |
+| Horizon content mods (`.hmod`) | MinecraftMod catalogue; installed into `horizon-mods/` | **Works** when the manifest API and game version match; package manifest and SHA-256 are checked |
+| Java mods (Fabric, NeoForge, Forge, Quilt) | Modrinth / configured CurseForge on desktop; browse-only on Android | Checked from its jar before install on supported desktop paths: **Works**, **Partly** or **Doesn't run** ([below](#java-mods)) |
 | Resource packs | `resourcepacks/` beside `options.txt` | **Works** when made for 26.3 ([resource-packs.md](resource-packs.md) lists what Horizon reads). Older packs are **Partly**: they load with vanilla's compatibility warning |
 | Modpacks (`.mrpack`, CurseForge zip) | the Modpacks page's import | **Partly**: Horizon runs the mods it can port, from the player's own downloads ([modpacks.md](modpacks.md)) |
 | Shader packs (`.hshader`, Horizon's registry only) | `shaderpacks/` beside `options.txt` | **Works** when made for 26.3: checked by the game's own check before install ([shaders.md](shaders.md)). The `shaders/`-format packs on Modrinth and CurseForge are not offered |
@@ -81,12 +81,10 @@ start); the hedge places and its recipe crafts 4.
 
 ## The Mods page
 
-The launcher's **Mods** page has three tabs: **Mods** and **Shader packs** search Horizon's registry (a Java
-instance's Mods tab searches Modrinth for its version), **Resource packs** searches Modrinth. Modrinth's Java mods and
-data packs aren't usable yet, so the Mods tab has no source switch and Data packs has no tab; the CLI still reaches
-them (`mods search --kind ...`). The Modpacks tab shows only while the sidebar's modpacks or its + button have it
-open. Resource packs and Modpacks have a search field (Enter searches), **Show everything** and the source: Modrinth or
-Horizon, with **CurseForge (coming soon)** beside it, disabled. Each result is an index row: its summary, author,
+The Android launcher's **Mods**, **Resource Packs** and **Shader Packs** pages use the shared provider interface.
+Android Mods search only the MinecraftMod .hmod catalogue. Java .jar mods are not offered in that tab because the client does not execute Fabric/Forge/NeoForge Java loaders. Resource Packs search Modrinth,
+CurseForge or Horizon and install only compatible ZIPs through the checksum-verified installer. Shader packs remain
+Horizon-native or experimental Modrinth ZIPs; CurseForge shader formats are not offered. Each result is an index row: its summary, author,
 downloads, source and licence, how well it runs (and why), **Page** (the project's page on its source) and
 **Install** (**Import** for a modpack). The Modpacks tab lists the imported packs first, with their coverage
 report, **Port** and **Play** ([modpacks.md](modpacks.md)). Installed packs are listed above the results with their version, source,
@@ -108,8 +106,10 @@ Modrinth `GET /project/{id}` and `/project/{id}/members`, then `/project/{id}/ve
 **Filters**, the loader, game version, environment (client, server) and categories, with the values the source lists
 for the kind (Modrinth's `/tag/category`, `/tag/loader`, `/tag/game_version`, asked once per run). A loader or version
 picked replaces the default (Java mod loaders and 26.3 for mods); a version other than 26.3 checks and installs the
-newest file for 1.21 or later, as **Show everything** does. Changing tabs clears the filters. CurseForge support
-is coming soon; its source already maps the order and the game version.
+newest file for 1.21 or later, as **Show everything** does. Changing tabs clears the filters. CurseForge uses its official API and requires a separately approved developer key.
+On Android the key is entered by its owner in Settings and stored encrypted with Android Keystore AES/GCM.
+CurseForge resource-pack downloads send the key to the CDN and verify the published SHA-1 before install. Java mod
+jars are browse-only on Android; the client does not execute Fabric/Forge/NeoForge Java loaders.
 
 **Icons and gallery images** are the projects' own, fetched at run time from the source's image server
 (`browser::images`): HTTPS from `cdn.modrinth.com` (or CurseForge's `media.forgecdn.net` / `edge.forgecdn.net`) only,
@@ -203,12 +203,16 @@ horizon-launcher modpack play cozy
 **Modrinth.** The public API (`api.modrinth.com/v2`) needs no key. The launcher names itself in its user agent, as
 Modrinth asks.
 
-### CurseForge (coming soon)
+### CurseForge
 
-CurseForge support is coming soon. Its API (`api.curseforge.com/v1`) needs a paid key, so for now the launcher
-doesn't use it: the Mods page shows **CurseForge (coming soon)** beside the Modrinth switch, disabled, and no search
-or install goes to CurseForge (`browser::sources()` is Modrinth only; `horizon-launcher mods ... --source curseforge`
-says it is coming soon). The CurseForge source (`browser/curseforge.rs`) is kept for when it comes.
+The provider uses the official `api.curseforge.com/v1` API. Each user must supply their own approved developer key;
+the Android launcher stores it encrypted with Android Keystore and never writes it to launcher config. Do not ship
+an APK containing another developer's key: CurseForge's terms make keys unique and non-transferable. The key is sent
+in the `x-api-key` header to both the API and file CDN. Downloads without a published SHA-1 or without an allowed
+CDN URL are refused. The direct-download CDN began requiring API-key authentication on July 16, 2026.
+
+Android exposes CurseForge for Resource Packs. The Mods tab uses MinecraftMod exclusively; Java .jar mods are not listed there because this client does not execute Java loaders. Resource-pack ZIPs are offered to the existing installer, which checks Minecraft
+version compatibility, filename, host, size and SHA-1. CurseForge shader-format projects are deliberately excluded.
 
 A CurseForge modpack zip or instance the player already has still imports, since that needs no key: its jars come
 from the player's installed instance or, when Modrinth has the same file, from Modrinth. A jar only CurseForge serves

@@ -185,23 +185,46 @@ as vanilla's; without one it draws as the missing texture). It does nothing on i
 attribute modifiers. A world opened without the mod drops the effect from its players and mobs. Clients join a server
 only with the same mods' effects, as with its blocks.
 
-A mod entity type is declared in `data/<id>/horizon/entity_type/<name>.json`. It copies a vanilla type: for now only
-`minecraft:snowball`, a thrown item projectile. `item` is one of the mod's own items (one type per item), and `damage`
-(0 by default) is what a hit deals to anything it hits, as `thrown` damage from the thrower (the snowball's 3 to blazes
-is not copied):
+A mod entity type is declared in `data/<id>/horizon/entity_type/<name>.json`.
+
+**Thrown projectile:** omit `kind` (the backwards-compatible default is `projectile`). `template` is currently
+`minecraft:snowball`; `item` is one of the mod's own registered items (one entity type per item), and `damage`
+(0 by default) is thrown hit damage:
 
 ```json
 { "template": "minecraft:snowball", "item": "ruby:ember", "damage": 2.0 }
 ```
 
-It is the entity type `<id>:<name>`, with its network id after vanilla's. Using its item throws it as a snowball is
-thrown: same speed, spread, sound and cooldown, and one item used outside creative. It flies as a snowball, breaks on
-what it hits with its item's crumbs, and is drawn as its item's model (`ThrownItemRenderer`). Its name is the translation
-`entity.<id>.<name>`. It works in single player and on LAN with the same mods. Dedicated servers share that code,
-untested so far. Clients join a server only with the same mods' entity types, as with its blocks. It is saved with its
-chunk, `/summon <id>:<name>` makes one, and it has its template's row in `entity-types.json`. A world opened without the
-mod keeps the saved ones as they are, frozen in place. Not yet: a dispenser doesn't throw it, and a vanilla client on a
-server with it may be disconnected when one spawns.
+Using the item throws the projectile like a snowball, with the same speed, spread, sound and cooldown. It breaks on
+impact, is drawn as the item's model and can also be created with `/summon <id>:<name>`.
+
+**Living entity archetype:** set `kind` to `living`. The current supported templates are
+`minecraft:zombie`, `minecraft:skeleton`, `minecraft:cow`, `minecraft:pig`, `minecraft:sheep`,
+`minecraft:chicken`, `minecraft:spider`, `minecraft:creeper`, `minecraft:wolf`,
+`minecraft:iron_golem` and `minecraft:vex`. Vex reuses Horizon's implemented flying movement,
+charge/melee attack, owner/nearest-player targeting, model, animation and sounds. A living entity reuses that template's implemented AI goals, movement/physics,
+model, animation, sounds and spawn category under the mod's own entity id. It can override these attributes:
+`minecraft:max_health`, `minecraft:movement_speed`, `minecraft:attack_damage`, `minecraft:armor`,
+`minecraft:armor_toughness`, `minecraft:knockback_resistance`, `minecraft:follow_range`,
+`minecraft:jump_strength` and `minecraft:flying_speed`.
+
+```json
+{
+  "kind": "living",
+  "template": "minecraft:zombie",
+  "attributes": {
+    "minecraft:max_health": 40.0,
+    "minecraft:movement_speed": 0.31,
+    "minecraft:attack_damage": 7.0
+  }
+}
+```
+
+A living type has no spawn item yet; use `/summon <id>:<name>`. Its display name comes from
+`entity.<id>.<name>` in the mod's language assets. This is a **vanilla-archetype API**, not arbitrary custom AI:
+mods cannot yet add new goal classes, target selectors, pathfinding algorithms, tick/event callbacks, custom
+model rigs or animation controllers. The entity uses the behaviour and visuals of its selected vanilla template.
+The entity registry and mob runtime both need the same mod enabled; test multiplayer with matching client/server mods.
 
 #### Menu types
 

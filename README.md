@@ -15,6 +15,7 @@ Rust engine for Minecraft Java 26.3. Unofficial and in active development.
   360-degree movement, Auto Sprint and Sprint-button visibility.
 - Java multiplayer, including the Hypixel Arcade lobby shown below.
 - Native launcher, verified resource downloads, resource packs and `.hmod` import.
+- `.hmod` content mods can add blocks, items, projectile entity types and living entity archetypes; living mobs currently reuse supported vanilla AI and visuals with selected attribute overrides. See [mod development](docs/mods.md#content-mods-api-02).
 - Vulkan rendering modes and resolution scaling; Android keyboard, clipboard,
   AAudio sound and phone vibration through the existing game settings.
 - Account status and Android Keystore storage; the current sign-in configuration
@@ -253,3 +254,10 @@ Skins served over https show the default skin unless already cached; pack icons 
 Made by [Ludovic Marie](https://lu4ovic.com) ([@ludovic111](https://github.com/ludovic111)).
 
 </details>
+
+
+## Android mod catalogue
+
+The Android **Mods** tab downloads Horizon `.hmod` content mods from [Geko7490/MinecraftMod](https://github.com/Geko7490/MinecraftMod). The app fetches the repository's JSON catalogue and verifies each GitHub Release asset against its SHA-256 and exact size before installing. Fabric/Forge Java mods and native `.hnmod` bundles are not supported by this Android installer.
+
+Developers: see the [MinecraftMod modding guide](https://github.com/Geko7490/MinecraftMod/blob/main/docs/MODDING.md) and [Ruby example](https://github.com/Geko7490/MinecraftMod/tree/main/examples/ruby-content).

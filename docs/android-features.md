@@ -16,7 +16,7 @@ in the [Android guide](android.md#check).
 | Horizon clipboard actions | Newly connected to Android ClipboardManager for explicit text copy/paste; no background clipboard polling or file-URI reads |
 | Sound and subtitles | AAudio mixer and downloaded sound assets; existing category volumes, subtitles and accessibility settings remain available |
 | Graphics / streaming | Client-resolution presets and numeric input scale the complete frame, including menus and HUD, from 25–100%, subject to minimum menu dimensions. Existing game graphics controls remain available; launcher selects real Vulkan draw paths |
-| Sandboxed Horizon mods | 64-bit builds: Wasmtime `.hmod` runtime; 32-bit omits this runtime; existing capabilities and errors appear in the game mod menu. Official Horizon Mods catalog and direct HTTPS import; no Java-mod search or Java/Mixin execution |
+| Sandboxed Horizon mods | 64-bit builds: Wasmtime `.hmod` runtime; 32-bit omits this runtime; existing capabilities and errors appear in the game mod menu. MinecraftMod community catalogue with SHA-256-verified .hmod downloads; no Java-mod search or Java/Mixin execution |
 | Resource packs | Checksum-verified resource-pack search/install; modpack browsing, importing, selection and automatic launch hooks are removed on Android |
 | APK distribution | Dedicated `--public` build: 32 generated tables, original resources downloaded from official sources on the phone, no automatic agent socket; no player PC preparation |
 | Single player | Default integrated server and optional in-frame path. Editor pauses unpublished single player through the engine pause decision |

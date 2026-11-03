@@ -255,25 +255,71 @@ pub struct MobEffect {
     pub color: u32,
 }
 
-/// the vanilla entity types a mod's type may copy: thrown item
-/// projectiles (`ThrowableItemProjectile`).
+/// Vanilla entity templates currently supported by the data-driven registry.
 pub const ENTITY_TEMPLATES: [&str; 1] = ["minecraft:snowball"];
 
-/// an entity type the mod adds: a copy of a vanilla template's, thrown
-/// from `item` and drawn as it.
+/// Vanilla living mob templates whose existing AI, model and animation
+/// implementation can be safely reused by a mod-defined entity type.
+pub const LIVING_ENTITY_TEMPLATES: [&str; 11] = [
+    "minecraft:zombie",
+    "minecraft:skeleton",
+    "minecraft:cow",
+    "minecraft:pig",
+    "minecraft:sheep",
+    "minecraft:chicken",
+    "minecraft:spider",
+    "minecraft:creeper",
+    "minecraft:wolf",
+    "minecraft:iron_golem",
+    "minecraft:vex",
+];
+
+/// The runtime archetype a mod-defined entity type copies.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum EntityKind {
+    /// A thrown item projectile.
+    #[default]
+    Projectile,
+    /// A living mob using a supported vanilla mob archetype.
+    Living,
+}
+
+/// Attribute overrides for a living entity. Keys are vanilla attribute ids.
+pub const LIVING_ENTITY_ATTRIBUTES: [&str; 9] = [
+    "minecraft:max_health",
+    "minecraft:movement_speed",
+    "minecraft:attack_damage",
+    "minecraft:armor",
+    "minecraft:armor_toughness",
+    "minecraft:knockback_resistance",
+    "minecraft:follow_range",
+    "minecraft:jump_strength",
+    "minecraft:flying_speed",
+];
+
+/// An entity type added by a content mod. Projectiles are thrown by an item;
+/// living types reuse a vanilla mob's behaviour, geometry and renderer.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct EntityType {
     /// `<mod id>:<path>`.
     #[serde(skip)]
     pub id: String,
-    /// one of [`ENTITY_TEMPLATES`].
+    /// Defaults to `projectile` for backwards compatibility with API 0.2 mods.
+    #[serde(default)]
+    pub kind: EntityKind,
+    /// Vanilla projectile or living-mob template.
     pub template: String,
-    /// one of the mod's own items, which throws it.
-    pub item: String,
-    /// what a hit deals to an entity, as `thrown` damage.
+    /// Required for projectiles; living entity types are summoned by id.
+    #[serde(default)]
+    pub item: Option<String>,
+    /// Projectile hit damage; ignored for living entities (must remain zero).
     #[serde(default)]
     pub damage: f32,
+    /// Optional vanilla attribute overrides for living entities.
+    #[serde(default)]
+    pub attributes: BTreeMap<String, f64>,
 }
 
 /// a menu type the mod adds (vanilla's `MenuType`, NeoForge's
@@ -606,27 +652,58 @@ impl Content {
         for (kind, name) in types {
             let file: EntityType =
                 serde_json::from_slice(&self.file(&name)?).map_err(|e| format!("{name}: {e}"))?;
-            if !ENTITY_TEMPLATES.contains(&file.template.as_str()) {
-                return Err(format!(
-                    "{name}: template {:?} is not one of {ENTITY_TEMPLATES:?}",
-                    file.template
-                ));
-            }
-            // its own item, so no vanilla item loses its use to it.
-            if !ids.contains(&file.item) {
-                return Err(format!(
-                    "{name}: item {:?} is not one of this mod's items",
-                    file.item
-                ));
-            }
-            if self.entity_types.iter().any(|t| t.item == file.item) {
-                return Err(format!(
-                    "{name}: item {:?} already throws another entity type",
-                    file.item
-                ));
-            }
-            if !(file.damage.is_finite() && file.damage >= 0.0) {
-                return Err(format!("{name}: damage is 0 or more"));
+            match file.kind {
+                EntityKind::Projectile => {
+                    if !ENTITY_TEMPLATES.contains(&file.template.as_str()) {
+                        return Err(format!(
+                            "{name}: projectile template {:?} is not one of {ENTITY_TEMPLATES:?}",
+                            file.template
+                        ));
+                    }
+                    let item = file.item.as_deref().ok_or_else(|| {
+                        format!("{name}: projectile entity types need an item")
+                    })?;
+                    // its own item, so no vanilla item loses its use to it.
+                    if !ids.contains(item) {
+                        return Err(format!(
+                            "{name}: item {item:?} is not one of this mod's items"
+                        ));
+                    }
+                    if self.entity_types.iter().any(|t| t.item.as_deref() == Some(item)) {
+                        return Err(format!(
+                            "{name}: item {item:?} already throws another entity type"
+                        ));
+                    }
+                    if !file.attributes.is_empty() {
+                        return Err(format!("{name}: projectile entity types cannot set living attributes"));
+                    }
+                    if !(file.damage.is_finite() && file.damage >= 0.0) {
+                        return Err(format!("{name}: damage is 0 or more"));
+                    }
+                }
+                EntityKind::Living => {
+                    if !LIVING_ENTITY_TEMPLATES.contains(&file.template.as_str()) {
+                        return Err(format!(
+                            "{name}: living template {:?} is not one of {LIVING_ENTITY_TEMPLATES:?}",
+                            file.template
+                        ));
+                    }
+                    if file.item.is_some() {
+                        return Err(format!("{name}: living entity types do not take an item; summon them by id"));
+                    }
+                    if file.damage != 0.0 {
+                        return Err(format!("{name}: living entity damage is inherited from its template; use attributes.attack_damage"));
+                    }
+                    for (attribute, value) in &file.attributes {
+                        if !LIVING_ENTITY_ATTRIBUTES.contains(&attribute.as_str()) {
+                            return Err(format!("{name}: unsupported living attribute {attribute:?}"));
+                        }
+                        if !value.is_finite() || *value < 0.0 || (attribute == "minecraft:max_health" && *value == 0.0) {
+                            return Err(format!("{name}: attribute {attribute} must be finite and {}",
+                                if attribute == "minecraft:max_health" { "greater than zero" } else { "zero or more" }));
+                        }
+                    }
+                }
             }
             self.entity_types.push(EntityType { id: kind, ..file });
         }
@@ -1064,7 +1141,7 @@ capabilities = ["registries"]
         let types: Vec<_> = content
             .entity_types
             .iter()
-            .map(|t| (t.id.as_str(), t.item.as_str(), t.damage))
+            .map(|t| (t.id.as_str(), t.item.as_deref().unwrap_or(""), t.damage))
             .collect();
         assert_eq!(
             types,
@@ -1116,6 +1193,84 @@ capabilities = ["registries"]
         ];
         let e = hmod("type-shared", MANIFEST_TEXT, files).unwrap_err();
         assert!(e.contains("already throws another entity type"), "{e}");
+    }
+
+    #[test]
+    fn living_entity_types_reuse_a_vanilla_archetype_and_patch_attributes() {
+        let files: &[(&str, &[u8])] = &[(
+            "data/ruby/horizon/entity_type/sentinel.json",
+            br#"{
+                "kind": "living",
+                "template": "minecraft:zombie",
+                "attributes": {
+                    "minecraft:max_health": 40.0,
+                    "minecraft:movement_speed": 0.31,
+                    "minecraft:attack_damage": 7.0
+                }
+            }"#,
+        )];
+        let content = hmod("living-entity", MANIFEST_TEXT, files).unwrap();
+        let mob = &content.entity_types[0];
+        assert_eq!(mob.id, "ruby:sentinel");
+        assert_eq!(mob.kind, EntityKind::Living);
+        assert_eq!(mob.template, "minecraft:zombie");
+        assert_eq!(mob.item, None);
+        assert_eq!(mob.attributes["minecraft:max_health"], 40.0);
+        assert_eq!(mob.attributes["minecraft:movement_speed"], 0.31);
+
+        // Vex reuses Horizon's implemented flying movement, charge attack,
+        // owner/nearest-player targeting and native animation.
+        let vex_files: &[(&str, &[u8])] = &[(
+            "data/ruby/horizon/entity_type/wisp.json",
+            br#"{
+                "kind": "living",
+                "template": "minecraft:vex",
+                "attributes": {
+                    "minecraft:max_health": 24.0,
+                    "minecraft:attack_damage": 6.0,
+                    "minecraft:flying_speed": 0.6
+                }
+            }"#,
+        )];
+        let vex_content = hmod("living-vex", MANIFEST_TEXT, vex_files).unwrap();
+        let wisp = &vex_content.entity_types[0];
+        assert_eq!(wisp.id, "ruby:wisp");
+        assert_eq!(wisp.template, "minecraft:vex");
+        assert_eq!(wisp.kind, EntityKind::Living);
+        assert_eq!(wisp.attributes["minecraft:flying_speed"], 0.6);
+
+        for (case, file, why) in [
+            (
+                "living-template",
+                r#"{"kind":"living","template":"minecraft:warden"}"#,
+                "is not one of",
+            ),
+            (
+                "living-item",
+                r#"{"kind":"living","template":"minecraft:zombie","item":"ruby:core"}"#,
+                "do not take an item",
+            ),
+            (
+                "living-attribute",
+                r#"{"kind":"living","template":"minecraft:zombie","attributes":{"minecraft:scale":2.0}}"#,
+                "unsupported living attribute",
+            ),
+            (
+                "living-health",
+                r#"{"kind":"living","template":"minecraft:zombie","attributes":{"minecraft:max_health":0.0}}"#,
+                "greater than zero",
+            ),
+            (
+                "living-damage",
+                r#"{"kind":"living","template":"minecraft:zombie","damage":3.0}"#,
+                "inherited from its template",
+            ),
+        ] {
+            let files: &[(&str, &[u8])] =
+                &[("data/ruby/horizon/entity_type/a.json", file.as_bytes())];
+            let error = hmod(case, MANIFEST_TEXT, files).unwrap_err();
+            assert!(error.contains(why), "{case}: {error}");
+        }
     }
 
     #[test]

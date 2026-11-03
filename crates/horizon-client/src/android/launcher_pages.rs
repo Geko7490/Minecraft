@@ -11,10 +11,13 @@ pub(super) enum Action {
     Play,
     Search,
     ShaderSource(crate::shader_catalog::Origin),
-    ModSource(crate::shader_catalog::Origin),
+    PackSource(crate::shader_catalog::Origin),
     Field(&'static str),
     FinishNameEdit,
     Install(usize),
+    ModFilter(usize),
+    ModDetails(usize),
+    CloseModDetails,
     Import(horizon_client::content_files::Kind),
     OpenFolder(horizon_client::content_files::Kind),
     ToggleSection(usize),
@@ -448,7 +451,7 @@ impl Launcher {
                 142.0,
                 color::TEXT,
                 if page == Page::Mods {
-                    "Horizon Mods"
+                    "MinecraftMod"
                 } else if page == Page::Shaders {
                     if w < 360.0 { "Shaders" } else { "Shader Packs" }
                 } else {
@@ -462,7 +465,7 @@ impl Launcher {
                 &format!(
                     "{}{}",
                     if page == Page::Mods {
-                        "Search / .hmod URL: "
+                         "Search: "
                     } else {
                         "Search: "
                     },
@@ -475,49 +478,35 @@ impl Launcher {
                 &mut ui,
                 &mut self.targets,
                 [w - 190.0, 174.0, 158.0, 44.0],
-                if page == Page::Mods && self.catalog.query.trim().starts_with("https://") {
-                    "Import .hmod"
-                } else {
-                    "Search"
-                },
+                "Search",
                 Action::Search,
                 true,
             );
-            if matches!(page, Page::Shaders | Page::Mods) {
+            if matches!(page, Page::Shaders | Page::Packs) {
                 use crate::shader_catalog::Origin;
-                let width = ((w - 185.0) / 2.0).clamp(58.0, 120.0);
-                for (i, origin) in [Origin::Horizon, Origin::Modrinth].into_iter().enumerate() {
-                    let rect = [w - 32.0 - (2 - i) as f32 * width, 134.0, width - 5.0, 32.0];
-                    button(
-                        &mut ui,
-                        &mut self.targets,
-                        rect,
-                        origin.source().label(),
-                        if page == Page::Mods {
-                            Action::ModSource(origin)
-                        } else {
-                            Action::ShaderSource(origin)
-                        },
-                        false,
-                    );
-                    if (if page == Page::Mods {
-                        self.catalog.config.mod_source
-                    } else {
-                        self.catalog.config.shader_source
-                    }) == origin
-                    {
-                        ui.border(rect[0], rect[1], rect[2], rect[3], 1.0, color::TEXT);
-                    }
+                let mut origins = vec![Origin::Horizon, Origin::Modrinth];
+                if page == Page::Packs && self.catalog.curseforge_configured {
+                    origins.push(Origin::CurseForge);
+                }
+                let count = origins.len().max(1) as f32;
+                let width = ((w - 185.0) / count).clamp(58.0, 120.0);
+                for (i, origin) in origins.into_iter().enumerate() {
+                    let rect = [w - 32.0 - (count - 1.0 - i as f32) * width, 134.0, width - 5.0, 32.0];
+                    button(&mut ui, &mut self.targets, rect, origin.source().label(),
+                        if page == Page::Shaders { Action::ShaderSource(origin) } else { Action::PackSource(origin) }, false);
+                    let selected = match page {
+                        Page::Shaders => self.catalog.config.shader_source,
+                        Page::Packs => self.catalog.config.pack_source,
+                        _ => origin,
+                    };
+                    if selected == origin { ui.border(rect[0], rect[1], rect[2], rect[3], 1.0, color::TEXT); }
                 }
             }
             let hint = match page {
-                Page::Mods
-                    if self.catalog.config.mod_source
-                        == crate::shader_catalog::Origin::Modrinth =>
-                {
-                    "Modrinth Java mods are browse-only; Fabric/Forge/NeoForge cannot run here"
-                }
-                Page::Mods => "Search Horizon mods or paste an HTTPS .hmod link",
+                Page::Mods => "Browse and install sandboxed .hmod mods from MinecraftMod",
+                Page::Packs if self.catalog.config.pack_source == crate::shader_catalog::Origin::CurseForge => {
+                    "CurseForge resource packs: supported ZIPs can be installed after version checks"
+                },
                 Page::Shaders
                     if self.catalog.config.shader_source
                         == crate::shader_catalog::Origin::Modrinth =>
@@ -528,7 +517,7 @@ impl Launcher {
                 _ => "Verified downloads / enable in Installed",
             };
             let hint = ui.fit_text(Face::Regular, 14.0, hint, w - 64.0);
-            ui.text(Face::Regular, 14.0, 32.0, 270.0, color::MUTED, &hint);
+            ui.text(Face::Regular, 14.0, 32.0, if page == Page::Mods { 306.0 } else { 270.0 }, color::MUTED, &hint);
             let kind = match page {
                 Page::Mods => horizon_client::content_files::Kind::Mods,
                 Page::Shaders => horizon_client::content_files::Kind::Shaders,
@@ -551,9 +540,14 @@ impl Launcher {
                 Action::Import(kind),
                 false,
             );
-            let bundled: Vec<_> = if page == Page::Mods
-                && self.catalog.config.mod_source == crate::shader_catalog::Origin::Horizon
-            {
+            if page == Page::Mods {
+                for (index, label) in ["All", "Items", "Experimental"].iter().enumerate() {
+                    let width = ((w - 76.0) / 3.0).min(150.0);
+                    let rect = [32.0 + index as f32 * (width + 6.0), 260.0, width, 34.0];
+                    button(&mut ui, &mut self.targets, rect, label, Action::ModFilter(index), self.catalog.mod_filter == index);
+                }
+            }
+            let bundled: Vec<_> = if page == Page::Mods {
                 let query = self.catalog.query.to_lowercase();
                 horizon_client::mod_list::ANDROID_BUNDLED
                     .into_iter()
@@ -571,14 +565,19 @@ impl Launcher {
                 .enumerate()
                 .filter(|(_, p)| {
                     !(page == Page::Mods
-                        && p.source == crate::browser::SourceId::Horizon
+                        && matches!(p.source, crate::browser::SourceId::Horizon | crate::browser::SourceId::MinecraftMod)
                         && horizon_client::mod_list::ANDROID_BUNDLED
                             .iter()
                             .any(|(id, _, _)| *id == p.id))
                 })
+                .filter(|(_, p)| page != Page::Mods || match self.catalog.mod_filter {
+                    1 => p.summary.contains("[category:items]"),
+                    2 => p.summary.contains("[category:experimental]"),
+                    _ => true,
+                })
                 .collect();
             let row_count = bundled.len() + catalog_rows.len();
-            let top = 296.0;
+            let top = if page == Page::Mods { 330.0 } else { 296.0 };
             let bottom = h - 112.0;
             self.catalog.scroll = self
                 .catalog
@@ -617,7 +616,7 @@ impl Launcher {
                 if download.is_none()
                     && !crate::catalog::source_only_mod(p)
                     && !(p.kind == crate::browser::Kind::Mod
-                        && p.source == crate::browser::SourceId::Modrinth)
+                        && matches!(p.source, crate::browser::SourceId::Modrinth | crate::browser::SourceId::CurseForge))
                 {
                     self.list_targets
                         .push(([w - 150.0, y, 118.0, 70.0], Action::Install(i)));
@@ -625,14 +624,24 @@ impl Launcher {
                 if y < top || y + 70.0 > bottom {
                     continue;
                 }
-                let title = ui.fit_text(Face::Medium, 19.0, &p.title, w - 214.0);
-                let summary = ui.fit_text(Face::Regular, 14.0, &p.summary, w - 214.0);
+                let title = ui.fit_text(Face::Medium, 19.0, &p.title, w - if page == Page::Mods { 350.0 } else { 214.0 });
+                let card_summary = p.summary.split("\n\n").next().unwrap_or(&p.summary)
+                    .replace("[category:items] ", "")
+                    .replace("[category:experimental] ", "")
+                    .replace("[EXPERIMENTAL] ", "");
+                let summary = ui.fit_text(Face::Regular, 14.0, &card_summary, w - if page == Page::Mods { 350.0 } else { 214.0 });
                 ui.text(Face::Medium, 19.0, 32.0, y, color::TEXT, &title);
                 ui.text(Face::Regular, 14.0, 32.0, y + 29.0, color::MUTED, &summary);
+                if page == Page::Mods && p.summary.contains("[EXPERIMENTAL]") {
+                    ui.text(Face::Medium, 11.0, 32.0, y + 51.0, color::ACCENT, "EXPERIMENTAL");
+                    button(&mut ui, &mut self.targets, [w - 280.0, y, 118.0, 42.0], "Details", Action::ModDetails(i), false);
+                } else if page == Page::Mods {
+                    button(&mut ui, &mut self.targets, [w - 280.0, y, 118.0, 42.0], "Details", Action::ModDetails(i), false);
+                }
                 if let Some(state) = download {
                     ui.text(Face::Medium, 16.0, w - 150.0, y + 12.0, color::TEXT, &state);
                 } else if p.kind == crate::browser::Kind::Mod
-                    && p.source == crate::browser::SourceId::Modrinth
+                    && matches!(p.source, crate::browser::SourceId::Modrinth | crate::browser::SourceId::CurseForge)
                 {
                     ui.text(
                         Face::Regular,
@@ -672,22 +681,42 @@ impl Launcher {
                     );
                 }
             }
-            button(
-                &mut ui,
-                &mut self.targets,
-                [32.0, h - 100.0, 120.0, 40.0],
-                "Previous",
-                Action::Previous,
-                false,
-            );
-            button(
-                &mut ui,
-                &mut self.targets,
-                [166.0, h - 100.0, 120.0, 40.0],
-                "Next",
-                Action::Next,
-                false,
-            );
+            if page == Page::Mods {
+                if let Some(index) = self.catalog.selected_mod {
+                    if let Some(project) = self.catalog.results.get(index) {
+                        ui.rounded(20.0, 286.0, w - 40.0, h - 410.0, 6.0, color::RAISED);
+                        ui.text(Face::Medium, 22.0, 36.0, 302.0, color::TEXT, &project.title);
+                        ui.text(Face::Regular, 13.0, 36.0, 332.0, color::MUTED, &format!("By {}  •  Minecraft {}", project.author, project.game_versions.join(", ")));
+                        for (line, value) in project.summary.lines().enumerate().take(8) {
+                            let clean = value.replace("[category:items] ", "").replace("[category:experimental] ", "").replace("[EXPERIMENTAL] ", "");
+                            let clean = ui.fit_text(Face::Regular, 14.0, &clean, w - 80.0);
+                            ui.text(Face::Regular, 14.0, 36.0, 360.0 + line as f32 * 25.0, color::TEXT, &clean);
+                        }
+                    }
+                }
+                button(&mut ui, &mut self.targets, [32.0, h - 100.0, 120.0, 40.0], "Back", Action::CloseModDetails, false);
+                if let Some(index) = self.catalog.selected_mod {
+                    button(&mut ui, &mut self.targets, [w - 150.0, h - 100.0, 118.0, 40.0], "Install / Update", Action::Install(index), true);
+                }
+            }
+            if page != Page::Mods || self.catalog.selected_mod.is_none() {
+                button(
+                    &mut ui,
+                    &mut self.targets,
+                    [32.0, h - 100.0, 120.0, 40.0],
+                    "Previous",
+                    Action::Previous,
+                    false,
+                );
+                button(
+                    &mut ui,
+                    &mut self.targets,
+                    [166.0, h - 100.0, 120.0, 40.0],
+                    "Next",
+                    Action::Next,
+                    false,
+                );
+            }
         } else if page == Page::Installed {
             use horizon_client::content_files::Kind;
             let top = 156.0;
@@ -880,6 +909,7 @@ impl Launcher {
                     Action::WorldFiles,
                 ),
                 ("Profile", format!("Profile {}", c.profile), Action::Profile),
+                ("CurseForge API key", "Enter your own developer key".into(), Action::Field("curseforge_api_key")),
                 (
                     "Orientation",
                     c.orientation.label().to_owned(),
@@ -1126,6 +1156,7 @@ impl Launcher {
                 "name" => self.catalog.config.name.clone(),
                 "server" => self.catalog.config.server.clone(),
                 "render_scale" => self.catalog.render_scale_text.clone(),
+                "curseforge_api_key" => format!("API key: {} characters", self.catalog.curseforge_key_length()),
                 _ => format!("Search: {}", self.catalog.query),
             };
             for ([x, y, w, _], action) in &self.targets {
@@ -1254,13 +1285,21 @@ impl Launcher {
             ],
             |([x, y, w, h], _)| [x + w / 2.0, y + h / 2.0],
         );
-        let action = self
-            .targets
-            .iter()
-            .find(|([x, y, w, h], _)| {
+        let detail_index = if self.catalog.page == Page::Mods {
+            self.catalog.selected_mod
+        } else {
+            None
+        };
+        let action = match detail_index {
+            Some(selected) => self.targets.iter().find(|([x, y, w, h], action)| {
+                (*x..*x + *w).contains(&p[0])
+                    && (*y..*y + *h).contains(&p[1])
+                    && (*action == Action::CloseModDetails || *action == Action::Install(selected))
+            }).map(|(_, action)| *action),
+            None => self.targets.iter().find(|([x, y, w, h], _)| {
                 (*x..*x + *w).contains(&p[0]) && (*y..*y + *h).contains(&p[1])
-            })
-            .map(|(_, a)| *a);
+            }).map(|(_, action)| *action),
+        };
         if self.catalog.busy() || crate::documents::busy() {
             return Ok(());
         }
@@ -1372,8 +1411,8 @@ impl Launcher {
                 crate::device_runtime::configure(self.catalog.config.device);
             }
 
-            Some(Action::ModSource(origin)) => {
-                self.catalog.config.mod_source = origin;
+            Some(Action::PackSource(origin)) => {
+                self.catalog.config.pack_source = origin;
                 self.catalog.config.save(&self.home)?;
                 self.catalog.offset = 0;
                 self.catalog.browse(&self.home);
@@ -1493,10 +1532,18 @@ impl Launcher {
                     "server" => &self.catalog.config.server,
                     "render_scale" => &self.catalog.render_scale_text,
                     "client_id" => &self.catalog.config.microsoft_client_id,
+                    "curseforge_api_key" => "",
                     _ => &self.catalog.query,
                 };
                 crate::platform::show(initial);
             }
+            Some(Action::ModFilter(filter)) => {
+                self.catalog.mod_filter = filter;
+                self.catalog.selected_mod = None;
+                self.catalog.scroll = 0.0;
+            }
+            Some(Action::ModDetails(index)) => self.catalog.selected_mod = Some(index),
+            Some(Action::CloseModDetails) => self.catalog.selected_mod = None,
             Some(Action::Install(i)) => self.catalog.install(&self.home, i),
             Some(Action::Next) => {
                 self.catalog.offset += 12;
